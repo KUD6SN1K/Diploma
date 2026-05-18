@@ -1,6 +1,7 @@
 ﻿using System.Configuration;
 using System.Data;
 using System.Windows;
+using ModernWpf;
 
 namespace Diploma
 {
@@ -9,6 +10,9 @@ namespace Diploma
     /// </summary>
     public partial class App : Application
     {
+        public App()
+        {
+            ThemeManager.Current.ApplicationTheme = ApplicationTheme.Light;
+        }
     }
-
 }

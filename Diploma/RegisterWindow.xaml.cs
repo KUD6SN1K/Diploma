@@ -1,4 +1,5 @@
-﻿using Diploma.Models;
+﻿using Diploma.Crypto;
+using Diploma.Models;
 using System;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -75,6 +76,14 @@ namespace Diploma
 
                     MessageBox.Show("Registration successful!", "Success",
                         MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    // 5. Clear all input fields
+                    ClearFields();
+
+                    // 6. Open login window and close this one
+                    var loginWindow = new LoginWindow();
+                    loginWindow.Show();
+                    this.Close();
                 }
                 else
                 {
@@ -86,6 +95,14 @@ namespace Diploma
             {
                 StatusText.Text = $"Connection error: {ex.Message}";
             }
+        }
+        private void ClearFields()
+        {
+            UsernameBox.Text = string.Empty;
+            DisplayNameBox.Text = string.Empty;
+            PasswordBox.Password = string.Empty;
+            ConfirmPasswordBox.Password = string.Empty;
+            StatusText.Text = string.Empty;
         }
 
         private void BackButton_Click(object sender, RoutedEventArgs e)

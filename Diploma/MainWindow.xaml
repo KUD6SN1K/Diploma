@@ -3,61 +3,157 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.modernwpf.com/2019"
         ui:WindowHelper.UseModernWindowStyle="True"
-        Title="Diploma Messenger" Height="600" Width="800">
-    <Grid Margin="10">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+        Title="Diploma Messenger" Height="650" Width="950"
+        MinHeight="450" MinWidth="800"
+        WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260"/>
+            <!-- Sidebar -->
+            <ColumnDefinition Width="*"/>
+            <!-- Chat area -->
+        </Grid.ColumnDefinitions>
 
-        <ListBox x:Name="MessagesListBox" 
-                 Grid.Row="0"
-                 BorderThickness="0"
-                 HorizontalContentAlignment="Stretch"
-                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-            <ListBox.ItemTemplate>
-                <DataTemplate>
-                    <Grid Margin="5">
-                        <Border CornerRadius="10" 
-                                Padding="10,5" 
-                                MaxWidth="400"
-                                HorizontalAlignment="{Binding Alignment}"
-                                Background="{Binding BubbleColor}">
-                            <StackPanel>
-                                <TextBlock Text="{Binding SenderName}" 
-                                           FontSize="11" 
-                                           Foreground="Gray"
-                                           Visibility="{Binding ShowSender}"/>
-                                <TextBlock Text="{Binding Text}" 
-                                           FontSize="14"
-                                           TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding Time}" 
-                                           FontSize="10" 
-                                           Foreground="Gray"
-                                           HorizontalAlignment="Right"/>
+        <!-- ========== SIDEBAR ========== -->
+        <Border Grid.Column="0" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+        BorderBrush="{DynamicResource SystemControlForegroundChromeHighBrush}"
+        BorderThickness="0,0,1,0">
+            <Grid Margin="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <!-- Add friend -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Friend requests header -->
+                    <RowDefinition Height="80"/>
+                    <!-- Friend requests list (fixed height) -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Chats header -->
+                    <RowDefinition Height="*"/>
+                    <!-- Chat list (remaining space) -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Settings button -->
+                </Grid.RowDefinitions>
+
+                <!-- Add friend by username -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                    <TextBlock Text="Add friend" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                    <TextBox x:Name="FriendUsernameBox" Height="30" FontSize="14"
+                     ui:ControlHelper.PlaceholderText="Username"/>
+                    <Button x:Name="AddFriendButton" Content="Send request" Margin="0,5,0,0"
+                    Height="30" Click="AddFriendButton_Click"
+                    Style="{StaticResource AccentButtonStyle}"/>
+                </StackPanel>
+
+                <!-- Friend requests section -->
+                <TextBlock Grid.Row="1" Text="Friend requests" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                <ListBox x:Name="FriendRequestsListBox" Grid.Row="2"
+                 BorderThickness="0" Background="Transparent"
+                 HorizontalContentAlignment="Stretch">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Margin="0,2">
+                                <TextBlock Text="{Binding FromUsername}" VerticalAlignment="Center"/>
+                                <Button Content="Accept" Margin="10,0,0,0" Click="AcceptRequest_Click"
+                                Tag="{Binding RequestId}" Width="60" Height="22" FontSize="12"/>
+                                <Button Content="Decline" Margin="5,0,0,0" Click="DeclineRequest_Click"
+                                Tag="{Binding RequestId}" Width="60" Height="22" FontSize="12"/>
                             </StackPanel>
-                        </Border>
-                    </Grid>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
 
-        <Grid Grid.Row="1" Margin="0,10,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBox x:Name="MessageTextBox" 
-                     Grid.Column="0"
-                     VerticalAlignment="Center"
-                     AcceptsReturn="False"/>
-            <Button x:Name="SendButton"
-                    Grid.Column="1" 
-                    Content="Send" 
-                    Width="70" 
-                    Margin="10,0,0,0"
-                    Style="{StaticResource AccentButtonStyle}"
-                    Click="SendButton_Click"/>
+                <!-- Chat list header -->
+                <TextBlock Grid.Row="3" Text="Chats" FontWeight="SemiBold" Margin="0,10,0,5"/>
+
+                <!-- Chat list (contacts) -->
+                <ListBox x:Name="ChatListBox" Grid.Row="4"
+                 BorderThickness="0" Background="Transparent"
+                 SelectionChanged="ChatListBox_SelectionChanged"
+                 HorizontalContentAlignment="Stretch">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,3">
+                                <TextBlock Text="{Binding ContactName}" FontSize="15" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding LastMessage}" FontSize="12"
+                                   Foreground="Gray" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- Settings button -->
+                <Button Grid.Row="5" Content="⚙ Settings" HorizontalAlignment="Left"
+                Height="32" Margin="0,10,0,0" Click="SettingsButton_Click"/>
+            </Grid>
+        </Border>
+
+        <!-- ========== CHAT AREA ========== -->
+        <Grid Grid.Column="1" Margin="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <!-- Chat header -->
+                <RowDefinition Height="*"/>
+                <!-- Messages -->
+                <RowDefinition Height="Auto"/>
+                <!-- Input -->
+            </Grid.RowDefinitions>
+
+            <!-- Header with selected contact name -->
+            <TextBlock x:Name="ChatHeaderText" Grid.Row="0" Text="Select a chat"
+                       FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+            <!-- Messages list -->
+            <ListBox x:Name="MessagesListBox" 
+                     Grid.Row="1"
+                     BorderThickness="0"
+                     HorizontalContentAlignment="Stretch"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="5">
+                            <Border CornerRadius="10" 
+                                    Padding="10,5" 
+                                    MaxWidth="400"
+                                    HorizontalAlignment="{Binding Alignment}"
+                                    Background="{Binding BubbleColor}">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding SenderName}" 
+                                               FontSize="11" 
+                                               Foreground="Gray"
+                                               Visibility="{Binding ShowSender}"/>
+                                    <TextBlock Text="{Binding Text}" 
+                                               FontSize="14"
+                                               TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding Time}" 
+                                               FontSize="10" 
+                                               Foreground="Gray"
+                                               HorizontalAlignment="Right"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <!-- Input area -->
+            <Grid Grid.Row="2" Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="MessageTextBox" 
+                         Grid.Column="0"
+                         VerticalAlignment="Center"
+                         AcceptsReturn="False"
+                         FontSize="14" Height="32"/>
+                <Button x:Name="SendButton"
+                        Grid.Column="1" 
+                        Content="Send" 
+                        Width="70" 
+                        Margin="10,0,0,0"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Click="SendButton_Click"/>
+            </Grid>
         </Grid>
     </Grid>
 </Window>

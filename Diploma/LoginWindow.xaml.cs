@@ -59,19 +59,18 @@ namespace Diploma
                 {
                     var userData = await loginResponse.Content.ReadFromJsonAsync<LoginResponse>();
                     Guid userId = userData.UserId;
+                    string displayName = userData.DisplayName;
+                    string publicKey = userData.EccPublicKey;
 
-                    // Step 4: load private key from local DB
+                    // Load private key from local DB
                     var keyManager = new KeyManager(userId);
-                    // we need to retrieve the encrypted key bytes from the local DB
-                    // we'll add a method for that in KeyManager
-                    string privateKey = keyManager.LoadPrivateKey(userId);  // we'll fix KeyManager to read by userId
+                    string privateKey = keyManager.LoadPrivateKey(userId); // we'll fix LoadPrivateKey to accept Guid
 
-                    MessageBox.Show($"Login successful! Welcome, {userData.DisplayName}.", "Success",
+                    MessageBox.Show($"Login successful! Welcome, {displayName}.", "Success",
                         MessageBoxButton.OK, MessageBoxImage.Information);
 
-                    // Step 5: open main window with user info
-                    var mainWindow = new MainWindow();
-                    // you can pass the user data and private key to MainWindow later
+                    // Open main window with all the user data
+                    var mainWindow = new MainWindow(userId, username, displayName, privateKey, publicKey);
                     mainWindow.Show();
                     this.Close();
                 }

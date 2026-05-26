@@ -1,133 +1,84 @@
 ﻿using System;
 using System.Security.Cryptography;
 
-namespace Diploma
+namespace Diploma.Crypto
 {
     public static class ECCryptoService
     {
-        // Генерация пары ключей на эллиптической кривой NIST P-256
         public static (string publicKey, string privateKey) GenerateKeyPair()
         {
-            using (var ecdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256))
-            {
-                string publicKey = Convert.ToBase64String(
-                    ecdh.PublicKey.ExportSubjectPublicKeyInfo());
-                string privateKey = Convert.ToBase64String(
-                    ecdh.ExportECPrivateKey());
-                return (publicKey, privateKey);
-            }
+            using var ecdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+            string pub = Convert.ToBase64String(ecdh.PublicKey.ExportSubjectPublicKeyInfo());
+            string priv = Convert.ToBase64String(ecdh.ExportECPrivateKey());
+            return (pub, priv);
         }
 
-        // Шифрование сообщения открытым ключом получателя (ECIES)
-        public static (byte[] ciphertext, string ephemeralPublicKey) EncryptData(
-            byte[] plainText, string recipientPublicKeyBase64)
+        // Encrypt using sender's static private key and recipient's static public key
+        public static byte[] EncryptData(byte[] plainText, string senderPrivateKey, string recipientPublicKey)
         {
-            byte[] recipientPublicKeyBytes = Convert.FromBase64String(recipientPublicKeyBase64);
+            byte[] privKeyBytes = Convert.FromBase64String(senderPrivateKey);
+            byte[] pubKeyBytes = Convert.FromBase64String(recipientPublicKey);
 
-            // Генерация эфемерной пары ключей отправителя
-            using (var ephemeralEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256))
-            {
-                string ephemeralPublicKey = Convert.ToBase64String(
-                    ephemeralEcdh.PublicKey.ExportSubjectPublicKeyInfo());
+            using var senderEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+            senderEcdh.ImportECPrivateKey(privKeyBytes, out _);
 
-                // Импорт открытого ключа получателя
-                using (var recipientEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256))
-                {
-                    recipientEcdh.ImportSubjectPublicKeyInfo(recipientPublicKeyBytes, out _);
+            using var recipientEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+            recipientEcdh.ImportSubjectPublicKeyInfo(pubKeyBytes, out _);
 
-                    // Вычисление общего секрета
-                    byte[] sharedSecret = ephemeralEcdh.DeriveKeyMaterial(recipientEcdh.PublicKey);
-
-                    // Извлечение AES-ключа из общего секрета (HKDF)
-                    byte[] aesKey = DeriveAesKey(sharedSecret);
-
-                    // Шифрование данных AES-GCM
-                    byte[] ciphertext = AesGcmEncrypt(plainText, aesKey);
-
-                    return (ciphertext, ephemeralPublicKey);
-                }
-            }
+            byte[] sharedSecret = senderEcdh.DeriveKeyMaterial(recipientEcdh.PublicKey);
+            byte[] aesKey = DeriveAesKey(sharedSecret);
+            return AesGcmEncrypt(plainText, aesKey);
         }
 
-        // Расшифрование сообщения
-        public static byte[] DecryptData(
-            byte[] ciphertext, string ephemeralPublicKeyBase64, string recipientPrivateKeyBase64)
+        // Decrypt using recipient's static private key and sender's static public key
+        public static byte[] DecryptData(byte[] ciphertext, string recipientPrivateKey, string senderPublicKey)
         {
-            byte[] ephemeralPublicKeyBytes = Convert.FromBase64String(ephemeralPublicKeyBase64);
-            byte[] recipientPrivateKeyBytes = Convert.FromBase64String(recipientPrivateKeyBase64);
+            byte[] privKeyBytes = Convert.FromBase64String(recipientPrivateKey);
+            byte[] pubKeyBytes = Convert.FromBase64String(senderPublicKey);
 
-            // Импорт закрытого ключа получателя
-            using (var recipientEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256))
-            {
-                recipientEcdh.ImportECPrivateKey(recipientPrivateKeyBytes, out _);
+            using var recipientEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+            recipientEcdh.ImportECPrivateKey(privKeyBytes, out _);
 
-                // Импорт эфемерного открытого ключа отправителя
-                using (var ephemeralEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256))
-                {
-                    ephemeralEcdh.ImportSubjectPublicKeyInfo(ephemeralPublicKeyBytes, out _);
+            using var senderEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+            senderEcdh.ImportSubjectPublicKeyInfo(pubKeyBytes, out _);
 
-                    // Вычисление общего секрета
-                    byte[] sharedSecret = recipientEcdh.DeriveKeyMaterial(ephemeralEcdh.PublicKey);
-
-                    // Извлечение AES-ключа из общего секрета
-                    byte[] aesKey = DeriveAesKey(sharedSecret);
-
-                    // Расшифрование данных AES-GCM
-                    return AesGcmDecrypt(ciphertext, aesKey);
-                }
-            }
+            byte[] sharedSecret = recipientEcdh.DeriveKeyMaterial(senderEcdh.PublicKey);
+            byte[] aesKey = DeriveAesKey(sharedSecret);
+            return AesGcmDecrypt(ciphertext, aesKey);
         }
 
-        // Извлечение 256-битного AES-ключа из общего секрета через SHA-256
         private static byte[] DeriveAesKey(byte[] sharedSecret)
         {
-            using (var sha256 = SHA256.Create())
-            {
-                return sha256.ComputeHash(sharedSecret);
-            }
+            using var sha256 = SHA256.Create();
+            return sha256.ComputeHash(sharedSecret);
         }
 
-        // Шифрование данных с помощью AES-GCM
         private static byte[] AesGcmEncrypt(byte[] plainText, byte[] key)
         {
-            byte[] nonce = new byte[12]; // 96-битный nonce (AES-GCM рекомендует 12 байт)
-            byte[] tag = new byte[16];   // 128-битный тег аутентификации
+            byte[] nonce = new byte[12];
+            byte[] tag = new byte[16];
             byte[] ciphertext = new byte[plainText.Length];
-
             RandomNumberGenerator.Fill(nonce);
-
-            using (var aesGcm = new AesGcm(key, tag.Length))
-            {
-                aesGcm.Encrypt(nonce, plainText, ciphertext, tag);
-            }
-
-            // Упаковываем: nonce + ciphertext + tag
+            using var aesGcm = new AesGcm(key, tag.Length);
+            aesGcm.Encrypt(nonce, plainText, ciphertext, tag);
             byte[] result = new byte[nonce.Length + ciphertext.Length + tag.Length];
             Buffer.BlockCopy(nonce, 0, result, 0, nonce.Length);
             Buffer.BlockCopy(ciphertext, 0, result, nonce.Length, ciphertext.Length);
             Buffer.BlockCopy(tag, 0, result, nonce.Length + ciphertext.Length, tag.Length);
-
             return result;
         }
 
-        // Расшифрование данных с помощью AES-GCM
         private static byte[] AesGcmDecrypt(byte[] encryptedData, byte[] key)
         {
             byte[] nonce = new byte[12];
             byte[] tag = new byte[16];
             byte[] ciphertext = new byte[encryptedData.Length - nonce.Length - tag.Length];
-
             Buffer.BlockCopy(encryptedData, 0, nonce, 0, nonce.Length);
             Buffer.BlockCopy(encryptedData, nonce.Length, ciphertext, 0, ciphertext.Length);
             Buffer.BlockCopy(encryptedData, nonce.Length + ciphertext.Length, tag, 0, tag.Length);
-
             byte[] plainText = new byte[ciphertext.Length];
-
-            using (var aesGcm = new AesGcm(key, tag.Length))
-            {
-                aesGcm.Decrypt(nonce, ciphertext, tag, plainText);
-            }
-
+            using var aesGcm = new AesGcm(key, tag.Length);
+            aesGcm.Decrypt(nonce, ciphertext, tag, plainText);
             return plainText;
         }
     }

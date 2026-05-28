@@ -67,20 +67,39 @@
 
                 <!-- Chat list (contacts) -->
                 <ListBox x:Name="ChatListBox" Grid.Row="4"
-                 BorderThickness="0" Background="Transparent"
-                 SelectionChanged="ChatListBox_SelectionChanged"
-                 HorizontalContentAlignment="Stretch">
+         BorderThickness="0" Background="Transparent"
+         SelectionChanged="ChatListBox_SelectionChanged"
+         HorizontalContentAlignment="Stretch">
+                    <ListBox.Resources>
+                        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+                    </ListBox.Resources>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Margin="0,3">
-                                <TextBlock Text="{Binding ContactName}" FontSize="15" FontWeight="SemiBold"/>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding LastMessage}" FontSize="12" Foreground="Gray" 
-               TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding LastMessageStatusIcon}" FontSize="10" 
-               Foreground="Gray" Margin="4,0,0,0"/>
+                            <Grid Margin="0,3">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding ContactName}" FontSize="15" FontWeight="SemiBold"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding LastMessage}" FontSize="12" Foreground="Gray" 
+                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding LastMessageStatusIcon}" FontSize="10" 
+                                   Foreground="Gray" Margin="4,0,0,0"/>
+                                    </StackPanel>
                                 </StackPanel>
-                            </StackPanel>
+                                <!-- Unread count bubble -->
+                                <Border Grid.Column="1" 
+                        Width="22" Height="22" 
+                        Background="Gray" CornerRadius="11"
+                        VerticalAlignment="Center" Margin="8,0,0,0"
+                        Visibility="{Binding HasUnread, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="{Binding UnreadCount}" 
+                               Foreground="White" FontSize="11" 
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>

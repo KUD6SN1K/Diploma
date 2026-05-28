@@ -97,6 +97,7 @@ namespace Diploma.Services
         public string LastMessageEncrypted { get; set; }
         public string LastMessageStatus { get; set; }  
         public Guid? LastMessageSenderId { get; set; }
+        public int UnreadCount { get; set; }
     }
 
     public class PendingRequestDto

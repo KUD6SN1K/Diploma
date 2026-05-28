@@ -75,7 +75,8 @@ namespace Diploma
                     PublicKey = c.PublicKey,
                     ConversationId = c.ConversationId,
                     LastMessageStatus = c.LastMessageStatus ?? "",
-                    IsLastMessageFromMe = c.LastMessageSenderId == _currentUserId
+                    IsLastMessageFromMe = c.LastMessageSenderId == _currentUserId,
+                    UnreadCount = c.UnreadCount
                 };
             }).ToList();
 
@@ -108,7 +109,9 @@ namespace Diploma
 
             _selectedChat = selected;
             ChatHeaderText.Text = selected.ContactName;
-
+            // Reset unread count for the selected chat
+            selected.UnreadCount = 0;
+            ChatListBox.Items.Refresh();   // optional, can be done after conversation load
             var conv = await _api.GetConversation(selected.Username);
             if (conv != null)
             {
@@ -160,7 +163,7 @@ namespace Diploma
                 }
 
                 displayMessages.Add(new MessageDisplay
-                {
+                {   
                     Text = plainText,
                     SenderName = senderName,
                     Time = msg.Timestamp.ToString("t"),
@@ -301,30 +304,32 @@ namespace Diploma
                     string encryptedContentB64 = doc.RootElement.GetProperty("encryptedContent").GetString();
                     Guid senderId = Guid.Parse(doc.RootElement.GetProperty("senderId").GetString());
 
-                    // If the conversation is currently open, reload messages
+                    // Load messages if this conversation is open
                     if (_selectedChat?.ConversationId == newConvId)
                         LoadMessages(newConvId);
 
-                    // Find the chat item for the other participant (the sender of this message)
+                    // Update last message preview
                     var chatList = ChatListBox.ItemsSource as List<ChatItem>;
-                    var targetChat = chatList?.FirstOrDefault(c => c.ContactUserId == senderId);
+                    var targetChat = chatList?.FirstOrDefault(c => c.ConversationId == newConvId);
                     if (targetChat != null)
                     {
-                        // If the conversationId is missing, set it now (so future messages match faster)
-                        if (targetChat.ConversationId == Guid.Empty)
-                            targetChat.ConversationId = newConvId;
-
-                        // Decrypt and set the preview
+                        // Update preview text
                         try
                         {
                             byte[] ciphertext = Convert.FromBase64String(encryptedContentB64);
                             byte[] decrypted = ECCryptoService.DecryptData(ciphertext, _currentPrivateKey, targetChat.PublicKey);
-                            string fullText = Encoding.UTF8.GetString(decrypted);
+                            string fullText = System.Text.Encoding.UTF8.GetString(decrypted);
                             targetChat.LastMessage = fullText.Length > 25 ? fullText.Substring(0, 25) + "..." : fullText;
                         }
-                        catch
+                        catch { targetChat.LastMessage = "[encrypted]"; }
+
+                        // Increment unread count if this conversation is NOT currently selected
+                        if (_selectedChat?.ConversationId != newConvId)
                         {
-                            targetChat.LastMessage = "[encrypted]";
+                            targetChat.UnreadCount++;
+                            targetChat.LastMessageStatus = "Sent"; // reset status to sent (no check mark for sender)
+                                                                   // Actually we shouldn't change IsLastMessageFromMe; that's determined by server data.
+                                                                   // For the unread bubble, we just need count.
                         }
                         ChatListBox.Items.Refresh();
                     }
@@ -389,6 +394,8 @@ namespace Diploma
                 _ => ""
             }
             : "";
+        public int UnreadCount { get; set; }
+        public bool HasUnread => UnreadCount > 0;
     }
 
     public class FriendRequestItem

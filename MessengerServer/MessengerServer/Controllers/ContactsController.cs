@@ -141,7 +141,12 @@ public class ContactsController : ControllerBase
                                 (m.Conversation.User1Id == c.OtherUserId && m.Conversation.User2Id == userId))
                     .OrderByDescending(m => m.Timestamp)
                     .Select(m => m.SenderId)
-                    .FirstOrDefault()
+                    .FirstOrDefault(),
+                UnreadCount = _db.Messages
+    .Count(m => (m.Conversation.User1Id == userId && m.Conversation.User2Id == c.OtherUserId ||
+                 m.Conversation.User1Id == c.OtherUserId && m.Conversation.User2Id == userId)
+                && m.SenderId != userId
+                && m.Status == "Sent")
             })
             .ToListAsync();
 

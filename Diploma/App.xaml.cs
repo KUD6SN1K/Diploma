@@ -1,18 +1,13 @@
-﻿using System.Configuration;
-using System.Data;
-using System.Windows;
-using ModernWpf;
+﻿using System.Windows;
 
 namespace Diploma
 {
-    /// <summary>
-    /// Interaction logic for App.xaml
-    /// </summary>
     public partial class App : Application
     {
-        public App()
+        protected override void OnStartup(StartupEventArgs e)
         {
-            ThemeManager.Current.ApplicationTheme = ApplicationTheme.Light;
+            base.OnStartup(e);
+            ModernWpf.ThemeManager.Current.ApplicationTheme = ModernWpf.ApplicationTheme.Light;
         }
     }
 }

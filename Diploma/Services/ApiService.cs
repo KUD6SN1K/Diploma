@@ -87,7 +87,9 @@ namespace Diploma.Services
         public string Username { get; set; }
         public string DisplayName { get; set; }
         public bool IsConfirmed { get; set; }
-        public string PublicKey { get; set; }   // <-- add this
+        public string PublicKey { get; set; }
+        public Guid ConversationId { get; set; }
+        public string LastMessageEncrypted { get; set; }
     }
 
     public class PendingRequestDto
@@ -111,5 +113,6 @@ namespace Diploma.Services
         public string EncryptedContent { get; set; }   // base64
         public DateTime Timestamp { get; set; }
         public string Status { get; set; }
+        
     }
 }

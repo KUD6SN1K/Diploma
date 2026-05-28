@@ -64,13 +64,24 @@ namespace Diploma
 
                     // Load private key from local DB
                     var keyManager = new KeyManager(userId);
-                    string privateKey = keyManager.LoadPrivateKey(userId); // we'll fix LoadPrivateKey to accept Guid
+                    string privateKey = keyManager.LoadPrivateKey(userId);  // as you defined
+
+                    // --- Prevent multiple logins for the same user ---
+                    string mutexName = $"DiplomaMessenger_User_{username}";
+                    var mutex = new System.Threading.Mutex(true, mutexName, out bool createdNew);
+                    if (!createdNew)
+                    {
+                        MessageBox.Show("This user is already logged in on another instance.",
+                                        "Login denied", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        mutex.Dispose();
+                        return;
+                    }
 
                     MessageBox.Show($"Login successful! Welcome, {displayName}.", "Success",
                         MessageBoxButton.OK, MessageBoxImage.Information);
 
-                    // Open main window with all the user data
-                    var mainWindow = new MainWindow(userId, username, displayName, privateKey, publicKey);
+                    // Open main window with all the user data, plus the mutex
+                    var mainWindow = new MainWindow(userId, username, displayName, privateKey, publicKey, mutex);
                     mainWindow.Show();
                     this.Close();
                 }

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Threading;
 
 namespace Diploma
 {
@@ -20,9 +21,9 @@ namespace Diploma
         private KeyManager _keyManager;
         private WebSocketService _wsService;
         private ChatItem _selectedChat;
-
+        private Mutex _userMutex;
         public MainWindow(Guid userId, string username, string displayName,
-                          string privateKey, string publicKey)
+                          string privateKey, string publicKey, Mutex userMutex)
         {
             InitializeComponent();
             this.Closed += async (s, e) =>
@@ -35,6 +36,7 @@ namespace Diploma
             _currentDisplayName = displayName;
             _currentPrivateKey = privateKey;
             _currentPublicKey = publicKey;
+            _userMutex = userMutex;
 
             _api = new ApiService("https://localhost:5001", userId);
             _keyManager = new KeyManager(userId);
@@ -46,16 +48,45 @@ namespace Diploma
         // ========== Load contacts ==========
         private async void LoadContacts()
         {
+            // Remember the currently selected contact (if any)
+            string selectedUsername = _selectedChat?.Username;
+
             var contacts = await _api.GetContacts();
-            ChatListBox.ItemsSource = contacts.Select(c => new ChatItem
-            {
-                ContactName = c.DisplayName,
-                Username = c.Username,
-                LastMessage = "",
-                ContactUserId = c.UserId,
-                PublicKey = c.PublicKey,
-                ConversationId = Guid.Empty
+            var chatItems = contacts.Select(c => {
+                string preview = "";
+                if (!string.IsNullOrEmpty(c.LastMessageEncrypted))
+                {
+                    try
+                    {
+                        byte[] ciphertext = Convert.FromBase64String(c.LastMessageEncrypted);
+                        byte[] decrypted = ECCryptoService.DecryptData(ciphertext, _currentPrivateKey, c.PublicKey);
+                        string fullText = System.Text.Encoding.UTF8.GetString(decrypted);
+                        preview = fullText.Length > 25 ? fullText.Substring(0, 25) + "..." : fullText;
+                    }
+                    catch { preview = "[encrypted]"; }
+                }
+                return new ChatItem
+                {
+                    ContactName = c.DisplayName,
+                    Username = c.Username,
+                    LastMessage = preview,
+                    ContactUserId = c.UserId,
+                    PublicKey = c.PublicKey,
+                    ConversationId = c.ConversationId,   // make sure the server also returns ConversationId now!
+                };
             }).ToList();
+
+            ChatListBox.ItemsSource = chatItems;
+
+            // Restore the previous selection, if it still exists
+            if (selectedUsername != null)
+            {
+                var previouslySelected = chatItems.FirstOrDefault(ci => ci.Username == selectedUsername);
+                if (previouslySelected != null)
+                {
+                    ChatListBox.SelectedItem = previouslySelected;
+                }
+            }
         }
 
         // ========== Load pending friend requests ==========
@@ -178,6 +209,20 @@ namespace Diploma
                 list?.Add(displayMsg);
                 MessagesListBox.Items.Refresh();
                 MessageTextBox.Clear();
+                 // Update the last message preview in the chat list
+    _selectedChat.LastMessage = text.Length > 25 ? text.Substring(0, 25) + "..." : text;
+
+    // Refresh the ListBox to show the new preview
+    var chatList = ChatListBox.ItemsSource as List<ChatItem>;
+    if (chatList != null)
+    {
+        int index = chatList.IndexOf(_selectedChat);
+        if (index >= 0)
+        {
+            chatList[index] = chatList[index]; // trigger refresh via replacement
+            ChatListBox.Items.Refresh();
+        }
+    }
             }
             else
             {
@@ -240,11 +285,37 @@ namespace Diploma
             switch (type)
             {
                 case "new_message":
-                    var convId = Guid.Parse(doc.RootElement.GetProperty("conversationId").GetString());
-                    if (_selectedChat?.ConversationId == convId)
-                        LoadMessages(convId);
-                    else
-                        LoadContacts(); // Update last message preview (optional)
+                    var newConvId = Guid.Parse(doc.RootElement.GetProperty("conversationId").GetString());
+                    string encryptedContentB64 = doc.RootElement.GetProperty("encryptedContent").GetString();
+                    Guid senderId = Guid.Parse(doc.RootElement.GetProperty("senderId").GetString());
+
+                    // If the conversation is currently open, reload messages
+                    if (_selectedChat?.ConversationId == newConvId)
+                        LoadMessages(newConvId);
+
+                    // Find the chat item for the other participant (the sender of this message)
+                    var chatList = ChatListBox.ItemsSource as List<ChatItem>;
+                    var targetChat = chatList?.FirstOrDefault(c => c.ContactUserId == senderId);
+                    if (targetChat != null)
+                    {
+                        // If the conversationId is missing, set it now (so future messages match faster)
+                        if (targetChat.ConversationId == Guid.Empty)
+                            targetChat.ConversationId = newConvId;
+
+                        // Decrypt and set the preview
+                        try
+                        {
+                            byte[] ciphertext = Convert.FromBase64String(encryptedContentB64);
+                            byte[] decrypted = ECCryptoService.DecryptData(ciphertext, _currentPrivateKey, targetChat.PublicKey);
+                            string fullText = Encoding.UTF8.GetString(decrypted);
+                            targetChat.LastMessage = fullText.Length > 25 ? fullText.Substring(0, 25) + "..." : fullText;
+                        }
+                        catch
+                        {
+                            targetChat.LastMessage = "[encrypted]";
+                        }
+                        ChatListBox.Items.Refresh();
+                    }
                     break;
 
                 case "friend_request":

@@ -44,7 +44,9 @@ namespace MessengerServer.Controllers
             {
                 type = "new_message",
                 conversationId = dto.ConversationId.ToString(),
-                messageId = dto.MessageId.ToString()
+                messageId = dto.MessageId.ToString(),
+                encryptedContent = dto.EncryptedContent,   // the new message’s encrypted data (base64)
+                senderId = dto.SenderId.ToString()
             });
             await _connMgr.SendAsync(recipientId, notification);
 

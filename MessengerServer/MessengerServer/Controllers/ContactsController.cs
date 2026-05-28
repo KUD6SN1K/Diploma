@@ -102,11 +102,9 @@ public class ContactsController : ControllerBase
             .Where(c => (c.UserId == userId || c.ContactUserId == userId) && c.IsConfirmed)
             .Select(c => new
             {
-                // Determine the other user's ID once
                 OtherUserId = c.UserId == userId ? c.ContactUserId : c.UserId,
                 c.ContactId,
                 c.IsConfirmed,
-                // Username/DisplayName/PublicKey of the other user
                 OtherUser = c.UserId == userId ? c.ContactUser : c.User
             })
             .Select(c => new
@@ -118,19 +116,31 @@ public class ContactsController : ControllerBase
                 IsConfirmed = c.IsConfirmed,
                 PublicKey = c.OtherUser.EccPublicKey,
 
-                // Conversation between the current user and the other user
                 ConversationId = _db.Conversations
                     .Where(conv => (conv.User1Id == userId && conv.User2Id == c.OtherUserId) ||
                                    (conv.User1Id == c.OtherUserId && conv.User2Id == userId))
                     .Select(conv => conv.ConversationId)
                     .FirstOrDefault(),
 
-                // Last message in that conversation (encrypted)
                 LastMessageEncrypted = _db.Messages
                     .Where(m => (m.Conversation.User1Id == userId && m.Conversation.User2Id == c.OtherUserId) ||
                                 (m.Conversation.User1Id == c.OtherUserId && m.Conversation.User2Id == userId))
                     .OrderByDescending(m => m.Timestamp)
                     .Select(m => Convert.ToBase64String(m.EncryptedContent))
+                    .FirstOrDefault(),
+
+                LastMessageStatus = _db.Messages
+                    .Where(m => (m.Conversation.User1Id == userId && m.Conversation.User2Id == c.OtherUserId) ||
+                                (m.Conversation.User1Id == c.OtherUserId && m.Conversation.User2Id == userId))
+                    .OrderByDescending(m => m.Timestamp)
+                    .Select(m => m.Status)
+                    .FirstOrDefault(),
+
+                LastMessageSenderId = _db.Messages
+                    .Where(m => (m.Conversation.User1Id == userId && m.Conversation.User2Id == c.OtherUserId) ||
+                                (m.Conversation.User1Id == c.OtherUserId && m.Conversation.User2Id == userId))
+                    .OrderByDescending(m => m.Timestamp)
+                    .Select(m => m.SenderId)
                     .FirstOrDefault()
             })
             .ToListAsync();

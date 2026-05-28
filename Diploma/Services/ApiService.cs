@@ -77,6 +77,11 @@ namespace Diploma.Services
                 return await response.Content.ReadFromJsonAsync<List<MessageDto>>();
             return new List<MessageDto>();
         }
+        public async Task MarkAsRead(Guid conversationId)
+        {
+            var payload = new { UserId = _userId, ConversationId = conversationId };
+            await _http.PostAsJsonAsync("api/messages/read", payload);
+        }
     }
 
     // DTOs matching server responses
@@ -90,6 +95,8 @@ namespace Diploma.Services
         public string PublicKey { get; set; }
         public Guid ConversationId { get; set; }
         public string LastMessageEncrypted { get; set; }
+        public string LastMessageStatus { get; set; }  
+        public Guid? LastMessageSenderId { get; set; }
     }
 
     public class PendingRequestDto

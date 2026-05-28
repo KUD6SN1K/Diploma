@@ -67,8 +67,44 @@ namespace MessengerServer.Controllers
                     EncryptedContent = Convert.ToBase64String(m.EncryptedContent),
                     m.Timestamp,
                     m.Status
-                }).ToListAsync();
+                })
+                .ToListAsync();
+
             return Ok(messages);
+        }
+        
+        [HttpPost("read")]
+        public async Task<IActionResult> MarkAsRead(MarkReadRequest dto)
+        {
+            var unread = await _db.Messages
+                .Where(m => m.ConversationId == dto.ConversationId
+                            && m.SenderId != dto.UserId
+                            && m.Status != "Read")
+                .ToListAsync();
+
+            foreach (var msg in unread)
+            {
+                msg.Status = "Read";
+                var notification = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    type = "message_status",
+                    messageId = msg.MessageId.ToString(),
+                    conversationId = dto.ConversationId.ToString(),
+                    newStatus = "Read"
+                });
+                await _connMgr.SendAsync(msg.SenderId, notification);
+            }
+
+            if (unread.Any())
+                await _db.SaveChangesAsync();
+
+            return Ok();
+        }
+
+        public class MarkReadRequest
+        {
+            public Guid UserId { get; set; }
+            public Guid ConversationId { get; set; }
         }
     }
 }

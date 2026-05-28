@@ -74,8 +74,12 @@
                         <DataTemplate>
                             <StackPanel Margin="0,3">
                                 <TextBlock Text="{Binding ContactName}" FontSize="15" FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding LastMessage}" FontSize="12"
-                                   Foreground="Gray" TextTrimming="CharacterEllipsis"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding LastMessage}" FontSize="12" Foreground="Gray" 
+               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding LastMessageStatusIcon}" FontSize="10" 
+               Foreground="Gray" Margin="4,0,0,0"/>
+                                </StackPanel>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -124,10 +128,10 @@
                                     <TextBlock Text="{Binding Text}" 
                                                FontSize="14"
                                                TextWrapping="Wrap"/>
-                                    <TextBlock Text="{Binding Time}" 
-                                               FontSize="10" 
-                                               Foreground="Gray"
-                                               HorizontalAlignment="Right"/>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <TextBlock Text="{Binding Time}" FontSize="10" Foreground="Gray"/>
+                                        <TextBlock Text="{Binding StatusIcon}" FontSize="10" Foreground="Gray" Margin="4,0,0,0"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
                         </Grid>

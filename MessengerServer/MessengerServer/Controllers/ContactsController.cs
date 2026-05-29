@@ -3,6 +3,7 @@ using MessengerServer.Models;
 using MessengerServer.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 [ApiController]
 [Route("api/[controller]")]
@@ -61,8 +62,9 @@ public class ContactsController : ControllerBase
         if (dto.Accept)
         {
             contact.IsConfirmed = true;
-            var user1 = contact.UserId;
-            var user2 = contact.ContactUserId;
+            var user1 = contact.UserId;           // original requester
+            var user2 = contact.ContactUserId;    // the one who accepted
+
             var conv = await _db.Conversations.FirstOrDefaultAsync(c =>
                 (c.User1Id == user1 && c.User2Id == user2) ||
                 (c.User1Id == user2 && c.User2Id == user1));
@@ -79,12 +81,40 @@ public class ContactsController : ControllerBase
             await _db.SaveChangesAsync();
 
             // Notify original requester that their request was accepted
-            var notification = System.Text.Json.JsonSerializer.Serialize(new
+            var notification = JsonSerializer.Serialize(new
             {
                 type = "contact_added",
                 contactUsername = _db.Users.Find(contact.ContactUserId)?.Username
             });
             await _connMgr.SendAsync(contact.UserId, notification);
+
+            // ------------------- Presence notifications for both users -------------------
+            var onlineIds = _connMgr.GetOnlineUserIds();
+
+            // Tell user1 (requester) that user2 (accepter) is online, if user2 is online
+            if (onlineIds.Contains(user2))
+            {
+                var presenceToUser1 = JsonSerializer.Serialize(new
+                {
+                    type = "presence",
+                    userId = user2.ToString(),
+                    isOnline = true
+                });
+                await _connMgr.SendAsync(user1, presenceToUser1);
+            }
+
+            // Tell user2 (accepter) that user1 (requester) is online, if user1 is online
+            if (onlineIds.Contains(user1))
+            {
+                var presenceToUser2 = JsonSerializer.Serialize(new
+                {
+                    type = "presence",
+                    userId = user1.ToString(),
+                    isOnline = true
+                });
+                await _connMgr.SendAsync(user2, presenceToUser2);
+            }
+            // -------------------------------------------------------------------------------
         }
         else
         {

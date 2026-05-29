@@ -25,5 +25,9 @@ namespace MessengerServer.Services
                 await socket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
             }
         }
+        public List<Guid> GetOnlineUserIds()
+        {
+            return _connections.Keys.ToList();
+        }
     }
 }

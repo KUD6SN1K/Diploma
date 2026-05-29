@@ -81,23 +81,29 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
-                                    <TextBlock Text="{Binding ContactName}" FontSize="15" FontWeight="SemiBold"/>
+                                    <!-- Contact name with online dot -->
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse Width="8" Height="8" Fill="LimeGreen" 
+                         VerticalAlignment="Center" Margin="0,0,5,0"
+                         Visibility="{Binding IsOnline, Converter={StaticResource BoolToVisibility}}"/>
+                                        <TextBlock Text="{Binding ContactName}" FontSize="15" FontWeight="SemiBold"/>
+                                    </StackPanel>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding LastMessage}" FontSize="12" Foreground="Gray" 
-                                   TextTrimming="CharacterEllipsis"/>
+                           TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Text="{Binding LastMessageStatusIcon}" FontSize="10" 
-                                   Foreground="Gray" Margin="4,0,0,0"/>
+                           Foreground="Gray" Margin="4,0,0,0"/>
                                     </StackPanel>
                                 </StackPanel>
-                                <!-- Unread count bubble -->
+                                <!-- Unread count bubble (unchanged) -->
                                 <Border Grid.Column="1" 
-                        Width="22" Height="22" 
-                        Background="Gray" CornerRadius="11"
-                        VerticalAlignment="Center" Margin="8,0,0,0"
-                        Visibility="{Binding HasUnread, Converter={StaticResource BoolToVisibility}}">
+                Width="22" Height="22" 
+                Background="Gray" CornerRadius="11"
+                VerticalAlignment="Center" Margin="8,0,0,0"
+                Visibility="{Binding HasUnread, Converter={StaticResource BoolToVisibility}}">
                                     <TextBlock Text="{Binding UnreadCount}" 
-                               Foreground="White" FontSize="11" 
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                       Foreground="White" FontSize="11" 
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                             </Grid>
                         </DataTemplate>
@@ -122,8 +128,10 @@
             </Grid.RowDefinitions>
 
             <!-- Header with selected contact name -->
-            <TextBlock x:Name="ChatHeaderText" Grid.Row="0" Text="Select a chat"
-                       FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+            <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                <TextBlock x:Name="ChatHeaderText" Text="Select a chat" FontSize="18" FontWeight="SemiBold"/>
+                <TextBlock x:Name="OnlineStatusText" FontSize="12" Foreground="LimeGreen" Visibility="Collapsed"/>
+            </StackPanel>
 
             <!-- Messages list -->
             <ListBox x:Name="MessagesListBox" 

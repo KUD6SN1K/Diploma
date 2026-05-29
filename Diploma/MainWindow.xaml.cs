@@ -41,13 +41,17 @@ namespace Diploma
 
             _api = new ApiService("https://localhost:5001", userId);
             _keyManager = new KeyManager(userId);
-            _ = ConnectWebSocket();
-            LoadContacts();
-            LoadPendingRequests();
+            // Wait until the window is fully loaded, then load data and connect
+            this.Loaded += async (s, e) =>
+            {
+                await LoadContactsAsync();
+                await LoadPendingRequestsAsync();
+                _ = ConnectWebSocket();
+            };
         }
 
         // ========== Load contacts ==========
-        private async void LoadContacts()
+        private async Task LoadContactsAsync()
         {
             string selectedUsername = _selectedChat?.Username;
 
@@ -91,7 +95,7 @@ namespace Diploma
         }
 
         // ========== Load pending friend requests ==========
-        private async void LoadPendingRequests()
+        private async Task LoadPendingRequestsAsync()
         {
             var requests = await _api.GetPendingRequests();
             FriendRequestsListBox.ItemsSource = requests.Select(r => new FriendRequestItem
@@ -108,6 +112,18 @@ namespace Diploma
                 return;
 
             _selectedChat = selected;
+            if (selected.IsOnline)
+            {
+                OnlineStatusText.Text = "Online";
+                OnlineStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.LimeGreen);
+                OnlineStatusText.Visibility = System.Windows.Visibility.Visible;
+            }
+            else
+            {
+                OnlineStatusText.Text = "Offline";
+                OnlineStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gray);
+                OnlineStatusText.Visibility = System.Windows.Visibility.Visible;
+            }
             ChatHeaderText.Text = selected.ContactName;
             // Reset unread count for the selected chat
             selected.UnreadCount = 0;
@@ -266,8 +282,8 @@ namespace Diploma
             if (sender is Button btn && btn.Tag is Guid contactId)
             {
                 await _api.RespondToRequest(contactId, true);
-                LoadPendingRequests();
-                LoadContacts();
+                await LoadPendingRequestsAsync();
+                await LoadContactsAsync();
             }
         }
 
@@ -276,7 +292,7 @@ namespace Diploma
             if (sender is Button btn && btn.Tag is Guid contactId)
             {
                 await _api.RespondToRequest(contactId, false);
-                LoadPendingRequests();
+                await LoadPendingRequestsAsync();
             }
         }
 
@@ -336,12 +352,12 @@ namespace Diploma
                     break;
 
                 case "friend_request":
-                    LoadPendingRequests();
+                    _ = LoadPendingRequestsAsync();
                     break;
 
                 case "contact_added":
-                    LoadContacts();
-                    LoadPendingRequests();
+                    _ = LoadContactsAsync();
+                    _ = LoadPendingRequestsAsync();
                     break;
                 case "message_status":
                     var msgId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString());
@@ -367,6 +383,29 @@ namespace Diploma
                     {
                         chatItem.LastMessageStatus = newStatus;
                         ChatListBox.Items.Refresh();
+                    }
+                    break;
+                case "presence":
+                    var presUserId = Guid.Parse(doc.RootElement.GetProperty("userId").GetString());
+                    var isOnline = doc.RootElement.GetProperty("isOnline").GetBoolean();
+                    MessageBox.Show($"Presence received: {presUserId} online={isOnline}", "Debug");
+                    // Update chat list – rename to avoid conflict
+                    var presenceChatList = ChatListBox.ItemsSource as List<ChatItem>;
+                    var chat = presenceChatList?.FirstOrDefault(c => c.ContactUserId == presUserId);
+                    if (chat != null)
+                    {
+                        chat.IsOnline = isOnline;
+                        ChatListBox.Items.Refresh();
+                    }
+
+                    // Update header if this is the selected chat
+                    if (_selectedChat?.ContactUserId == presUserId)
+                    {
+                        OnlineStatusText.Text = isOnline ? "Online" : "Offline";
+                        OnlineStatusText.Foreground = isOnline
+                            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.LimeGreen)
+                            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gray);
+                        OnlineStatusText.Visibility = System.Windows.Visibility.Visible;
                     }
                     break;
             }

@@ -23,21 +23,25 @@ public class WebSocketController : ControllerBase
     [HttpGet("ws")]
     public async Task Get()
     {
+        // 1. Validate that the request is a WebSocket handshake
         if (!HttpContext.WebSockets.IsWebSocketRequest)
         {
             HttpContext.Response.StatusCode = 400;
             return;
         }
 
+        // 2. Extract the user ID from the query string
         if (!Guid.TryParse(HttpContext.Request.Query["userId"], out var userId))
         {
             HttpContext.Response.StatusCode = 400;
             return;
         }
 
+        // 3. Accept the WebSocket connection and register the user
         using var socket = await HttpContext.WebSockets.AcceptWebSocketAsync();
         _manager.AddConnection(userId, socket);
-        // Send all currently online contacts to the new user
+
+        // 4. Tell the new user about their friends who are already online
         var onlineContacts = _db.Contacts
             .Where(c => (c.UserId == userId || c.ContactUserId == userId) && c.IsConfirmed)
             .Select(c => c.UserId == userId ? c.ContactUserId : c.UserId)
@@ -57,25 +61,36 @@ public class WebSocketController : ControllerBase
                 await _manager.SendAsync(userId, presenceMsg);
             }
         }
-        // Notify contacts that this user is online
+
+        // 5. Tell the new user's friends that this user is now online
         await BroadcastPresence(userId, true);
 
         try
         {
+            // 6. Keep the WebSocket alive until the client disconnects
             var buffer = new byte[1024];
             while (socket.State == WebSocketState.Open)
             {
-                var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                if (result.MessageType == WebSocketMessageType.Close)
+                try
+                {
+                    var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                        break;
+                }
+                catch (WebSocketException)
+                {
+                    // Client closed the window without a proper close handshake – perfectly normal
                     break;
+                }
             }
         }
         finally
         {
+            // 7. Cleanup: remove the user and notify their friends they went offline
             _manager.RemoveConnection(userId);
-            // Notify contacts that this user is offline
             await BroadcastPresence(userId, false);
 
+            // 8. Close the socket gracefully if it's still open
             if (socket.State == WebSocketState.Open)
                 await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
         }
@@ -100,6 +115,5 @@ public class WebSocketController : ControllerBase
         foreach (var contactId in contactIds)
             await _manager.SendAsync(contactId, notification);
 
-        Console.WriteLine($"Broadcasting presence for {userId}: {isOnline}. Sending to {contactIds.Count} contacts.");
     }
 }

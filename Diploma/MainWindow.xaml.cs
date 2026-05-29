@@ -27,11 +27,7 @@ namespace Diploma
                           string privateKey, string publicKey, Mutex userMutex)
         {
             InitializeComponent();
-            this.Closed += async (s, e) =>
-            {
-                if (_wsService != null)
-                    await _wsService.CloseAsync();
-            };
+          
             _currentUserId = userId;
             _currentUsername = username;
             _currentDisplayName = displayName;
@@ -47,6 +43,11 @@ namespace Diploma
                 await LoadContactsAsync();
                 await LoadPendingRequestsAsync();
                 _ = ConnectWebSocket();
+            };
+            this.Closed += async (s, e) =>
+            {
+                if (_wsService != null)
+                    await _wsService.CloseAsync();
             };
         }
 
@@ -339,13 +340,15 @@ namespace Diploma
                         }
                         catch { targetChat.LastMessage = "[encrypted]"; }
 
+                        // The new message is from the other user, so clear any sender‑side marks
+                        targetChat.IsLastMessageFromMe = false;
+                        targetChat.LastMessageStatus = "";   // no check marks for the receiver
+
                         // Increment unread count if this conversation is NOT currently selected
                         if (_selectedChat?.ConversationId != newConvId)
                         {
                             targetChat.UnreadCount++;
-                            targetChat.LastMessageStatus = "Sent"; // reset status to sent (no check mark for sender)
-                                                                   // Actually we shouldn't change IsLastMessageFromMe; that's determined by server data.
-                                                                   // For the unread bubble, we just need count.
+                            // Do not set LastMessageStatus here; the status is already cleared above
                         }
                         ChatListBox.Items.Refresh();
                     }
@@ -388,7 +391,7 @@ namespace Diploma
                 case "presence":
                     var presUserId = Guid.Parse(doc.RootElement.GetProperty("userId").GetString());
                     var isOnline = doc.RootElement.GetProperty("isOnline").GetBoolean();
-                    MessageBox.Show($"Presence received: {presUserId} online={isOnline}", "Debug");
+                    //MessageBox.Show($"Presence received: {presUserId} online={isOnline}", "Debug");
                     // Update chat list – rename to avoid conflict
                     var presenceChatList = ChatListBox.ItemsSource as List<ChatItem>;
                     var chat = presenceChatList?.FirstOrDefault(c => c.ContactUserId == presUserId);

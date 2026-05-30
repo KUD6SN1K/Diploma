@@ -23,6 +23,7 @@ namespace Diploma
         private WebSocketService _wsService;
         private ChatItem _selectedChat;
         private Mutex _userMutex;
+        private HashSet<Guid> _onlineUserIds = new HashSet<Guid>();
         public MainWindow(Guid userId, string username, string displayName,
                           string privateKey, string publicKey, Mutex userMutex)
         {
@@ -93,6 +94,7 @@ namespace Diploma
                 if (previouslySelected != null)
                     ChatListBox.SelectedItem = previouslySelected;
             }
+            ApplyOnlineStatusFromCache();
         }
 
         // ========== Load pending friend requests ==========
@@ -283,8 +285,18 @@ namespace Diploma
             if (sender is Button btn && btn.Tag is Guid contactId)
             {
                 await _api.RespondToRequest(contactId, true);
-                await LoadPendingRequestsAsync();
-                await LoadContactsAsync();
+
+                // Immediately remove the request from the UI (no server reload needed)
+                var pendingList = FriendRequestsListBox.ItemsSource as List<FriendRequestItem>;
+                var item = pendingList?.FirstOrDefault(r => r.RequestId == contactId);
+                if (item != null)
+                {
+                    pendingList.Remove(item);
+                    FriendRequestsListBox.Items.Refresh();
+                }
+
+                // The WebSocket "contact_added" handler will reload the chat list and set online status.
+                // Do NOT call LoadContactsAsync() or LoadPendingRequestsAsync() here.
             }
         }
 
@@ -308,6 +320,16 @@ namespace Diploma
             await _wsService.ConnectAsync();
         }
 
+        private void ApplyOnlineStatusFromCache()
+        {
+            var list = ChatListBox.ItemsSource as List<ChatItem>;
+            if (list == null) return;
+            foreach (var item in list)
+            {
+                item.IsOnline = _onlineUserIds.Contains(item.ContactUserId);
+            }
+            ChatListBox.Items.Refresh();
+        }
         private void OnWebSocketMessage(string message)
         {
             // Parse simple JSON manually (you can use System.Text.Json if you prefer)
@@ -359,7 +381,24 @@ namespace Diploma
                     break;
 
                 case "contact_added":
-                    _ = LoadContactsAsync();
+                    var addedContactUserId = Guid.Parse(doc.RootElement.GetProperty("contactUserId").GetString());
+                    bool addedIsOnline = doc.RootElement.GetProperty("isOnline").GetBoolean();
+
+                    // Update the online cache immediately
+                    if (addedIsOnline)
+                        _onlineUserIds.Add(addedContactUserId);
+                    else
+                        _onlineUserIds.Remove(addedContactUserId);
+
+                    // Reload contacts, then apply all cached online statuses
+                    _ = LoadContactsAsync().ContinueWith(_ =>
+                    {
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            ApplyOnlineStatusFromCache();
+                        });
+                    });
+
                     _ = LoadPendingRequestsAsync();
                     break;
                 case "message_status":
@@ -391,8 +430,14 @@ namespace Diploma
                 case "presence":
                     var presUserId = Guid.Parse(doc.RootElement.GetProperty("userId").GetString());
                     var isOnline = doc.RootElement.GetProperty("isOnline").GetBoolean();
-                    //MessageBox.Show($"Presence received: {presUserId} online={isOnline}", "Debug");
-                    // Update chat list – rename to avoid conflict
+
+                    // Keep the cache updated
+                    if (isOnline)
+                        _onlineUserIds.Add(presUserId);
+                    else
+                        _onlineUserIds.Remove(presUserId);
+
+                    // Update the chat list item (if exists)
                     var presenceChatList = ChatListBox.ItemsSource as List<ChatItem>;
                     var chat = presenceChatList?.FirstOrDefault(c => c.ContactUserId == presUserId);
                     if (chat != null)

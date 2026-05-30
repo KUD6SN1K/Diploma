@@ -63,7 +63,7 @@ public class ContactsController : ControllerBase
         {
             contact.IsConfirmed = true;
             var user1 = contact.UserId;           // original requester
-            var user2 = contact.ContactUserId;    // the one who accepted
+            var user2 = contact.ContactUserId;    // acceptor
 
             var conv = await _db.Conversations.FirstOrDefaultAsync(c =>
                 (c.User1Id == user1 && c.User2Id == user2) ||
@@ -80,41 +80,28 @@ public class ContactsController : ControllerBase
             }
             await _db.SaveChangesAsync();
 
-            // Notify original requester that their request was accepted
-            var notification = JsonSerializer.Serialize(new
-            {
-                type = "contact_added",
-                contactUsername = _db.Users.Find(contact.ContactUserId)?.Username
-            });
-            await _connMgr.SendAsync(contact.UserId, notification);
-
-            // ------------------- Presence notifications for both users -------------------
+            // Get online statuses after conversation is created
             var onlineIds = _connMgr.GetOnlineUserIds();
 
-            // Tell user1 (requester) that user2 (accepter) is online, if user2 is online
-            if (onlineIds.Contains(user2))
+            // Notify user1 (requester) that the request was accepted + user2's online status
+            var notifyUser1 = JsonSerializer.Serialize(new
             {
-                var presenceToUser1 = JsonSerializer.Serialize(new
-                {
-                    type = "presence",
-                    userId = user2.ToString(),
-                    isOnline = true
-                });
-                await _connMgr.SendAsync(user1, presenceToUser1);
-            }
+                type = "contact_added",
+                contactUserId = user2.ToString(),
+                contactUsername = _db.Users.Find(user2)?.Username,
+                isOnline = onlineIds.Contains(user2)
+            });
+            await _connMgr.SendAsync(user1, notifyUser1);
 
-            // Tell user2 (accepter) that user1 (requester) is online, if user1 is online
-            if (onlineIds.Contains(user1))
+            // Notify user2 (accepter) that they now have a new contact + user1's online status
+            var notifyUser2 = JsonSerializer.Serialize(new
             {
-                var presenceToUser2 = JsonSerializer.Serialize(new
-                {
-                    type = "presence",
-                    userId = user1.ToString(),
-                    isOnline = true
-                });
-                await _connMgr.SendAsync(user2, presenceToUser2);
-            }
-            // -------------------------------------------------------------------------------
+                type = "contact_added",
+                contactUserId = user1.ToString(),
+                contactUsername = _db.Users.Find(user1)?.Username,
+                isOnline = onlineIds.Contains(user1)
+            });
+            await _connMgr.SendAsync(user2, notifyUser2);
         }
         else
         {

@@ -78,32 +78,41 @@
                             <Grid Margin="0,3">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <!-- Name + preview -->
+                                    <ColumnDefinition Width="30"/>
+                                    <!-- Fixed‑width unread bubble area -->
                                 </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <!-- Contact name with online dot -->
+
+                                <!-- Left part: name, preview line -->
+                                <StackPanel Grid.Column="0">
                                     <StackPanel Orientation="Horizontal">
+                                        <!-- Online green dot -->
                                         <Ellipse Width="8" Height="8" Fill="LimeGreen" 
-                         VerticalAlignment="Center" Margin="0,0,5,0"
-                         Visibility="{Binding IsOnline, Converter={StaticResource BoolToVisibility}}"/>
+                                 VerticalAlignment="Center" Margin="0,0,5,0"
+                                 Visibility="{Binding IsOnline, Converter={StaticResource BoolToVisibility}}"/>
                                         <TextBlock Text="{Binding ContactName}" FontSize="15" FontWeight="SemiBold"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding LastMessage}" FontSize="12" Foreground="Gray" 
-                           TextTrimming="CharacterEllipsis"/>
+                                   TextTrimming="CharacterEllipsis" MaxWidth="140"/>
+                                        <!-- Timestamp -->
+                                        <TextBlock Text="{Binding LastMessageTimeText}" FontSize="10" 
+                                   Foreground="Gray" Margin="6,0,0,0"/>
+                                        <!-- Status icon (✓/✓✓) -->
                                         <TextBlock Text="{Binding LastMessageStatusIcon}" FontSize="10" 
-                           Foreground="Gray" Margin="4,0,0,0"/>
+                                   Foreground="Gray" Margin="4,0,0,0"/>
                                     </StackPanel>
                                 </StackPanel>
-                                <!-- Unread count bubble (unchanged) -->
+
+                                <!-- Right part: unread count bubble (fixed position) -->
                                 <Border Grid.Column="1" 
-                Width="22" Height="22" 
-                Background="Gray" CornerRadius="11"
-                VerticalAlignment="Center" Margin="8,0,0,0"
-                Visibility="{Binding HasUnread, Converter={StaticResource BoolToVisibility}}">
+                        Width="22" Height="22" 
+                        Background="Gray" CornerRadius="11"
+                        VerticalAlignment="Center" HorizontalAlignment="Center"
+                        Visibility="{Binding HasUnread, Converter={StaticResource BoolToVisibility}}">
                                     <TextBlock Text="{Binding UnreadCount}" 
-                       Foreground="White" FontSize="11" 
-                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                               Foreground="White" FontSize="11" 
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                             </Grid>
                         </DataTemplate>

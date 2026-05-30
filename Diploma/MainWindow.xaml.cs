@@ -82,7 +82,8 @@ namespace Diploma
                     ConversationId = c.ConversationId,
                     LastMessageStatus = c.LastMessageStatus ?? "",
                     IsLastMessageFromMe = c.LastMessageSenderId == _currentUserId,
-                    UnreadCount = c.UnreadCount
+                    UnreadCount = c.UnreadCount,
+                    LastMessageTimestamp = c.LastMessageTimestamp
                 };
             }).ToList();
 
@@ -483,6 +484,29 @@ namespace Diploma
             : "";
         public int UnreadCount { get; set; }
         public bool HasUnread => UnreadCount > 0;
+        public DateTime? LastMessageTimestamp { get; set; }
+
+        public string LastMessageTimeText
+        {
+            get
+            {
+                if (LastMessageTimestamp == null) return "";
+                var dt = LastMessageTimestamp.Value.ToLocalTime();
+                var now = DateTime.Now;
+
+                if (dt.Date == now.Date)
+                    return dt.ToString("t");                     // 14:35
+
+                if (dt.Date > now.Date.AddDays(-7))
+                    return dt.ToString("dddd");                  // Monday
+
+                // More than a week: show day + month if same year, else full date
+                if (dt.Year == now.Year)
+                    return dt.ToString("d MMMM");                // 6 May
+                else
+                    return dt.ToString("M/d/yyyy");              // 5/30/2026
+            }
+        }
     }
 
     public class FriendRequestItem

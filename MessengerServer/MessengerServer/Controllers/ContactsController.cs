@@ -160,10 +160,16 @@ public class ContactsController : ControllerBase
                     .Select(m => m.SenderId)
                     .FirstOrDefault(),
                 UnreadCount = _db.Messages
-    .Count(m => (m.Conversation.User1Id == userId && m.Conversation.User2Id == c.OtherUserId ||
-                 m.Conversation.User1Id == c.OtherUserId && m.Conversation.User2Id == userId)
-                && m.SenderId != userId
-                && m.Status == "Sent")
+                    .Count(m => (m.Conversation.User1Id == userId && m.Conversation.User2Id == c.OtherUserId ||
+                     m.Conversation.User1Id == c.OtherUserId && m.Conversation.User2Id == userId)
+                    && m.SenderId != userId
+                    && m.Status == "Sent"),
+                LastMessageTimestamp = _db.Messages
+                    .Where(m => (m.Conversation.User1Id == userId && m.Conversation.User2Id == c.OtherUserId) ||
+                                (m.Conversation.User1Id == c.OtherUserId && m.Conversation.User2Id == userId))
+                    .OrderByDescending(m => m.Timestamp)
+                    .Select(m => (DateTime?)m.Timestamp)
+                    .FirstOrDefault()
             })
             .ToListAsync();
 

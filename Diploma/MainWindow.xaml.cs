@@ -8,7 +8,9 @@ using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
-
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media;
 namespace Diploma
 {
     public partial class MainWindow : Window
@@ -24,6 +26,7 @@ namespace Diploma
         private ChatItem _selectedChat;
         private Mutex _userMutex;
         private HashSet<Guid> _onlineUserIds = new HashSet<Guid>();
+
         public MainWindow(Guid userId, string username, string displayName,
                           string privateKey, string publicKey, Mutex userMutex)
         {
@@ -109,9 +112,21 @@ namespace Diploma
             }).ToList();
         }
 
+ 
+        private void ScrollMessagesToBottom()
+        {
+            // Find the ScrollViewer inside the ListBox template
+            if (VisualTreeHelper.GetChildrenCount(MessagesListBox) > 0)
+            {
+                var border = VisualTreeHelper.GetChild(MessagesListBox, 0) as Decorator;
+                var scrollViewer = border?.Child as ScrollViewer;
+                scrollViewer?.ScrollToEnd();
+            }
+        }
         // ========== Chat selection ==========
         private async void ChatListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+          
             if (ChatListBox.SelectedItem is not ChatItem selected)
                 return;
 
@@ -145,6 +160,27 @@ namespace Diploma
                 MessagesListBox.ItemsSource = null;
             }
         }
+
+        private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Escape)
+            {
+                // Deselect the chat
+                ChatListBox.SelectedItem = null;
+                _selectedChat = null;
+
+                // Reset the right panel to the initial state
+                ChatHeaderText.Text = "Select a chat";
+                OnlineStatusText.Visibility = Visibility.Collapsed;
+                MessagesListBox.ItemsSource = null;
+                MessageTextBox.Clear();
+                // Remove focus from the chat list and return it to the window
+                ChatListBox.Focusable = false;
+                ChatListBox.Focusable = true;
+                Keyboard.ClearFocus();
+            }
+        }
+
 
         // ========== Load messages ==========
         private async void LoadMessages(Guid conversationId)
@@ -183,10 +219,10 @@ namespace Diploma
                 }
 
                 displayMessages.Add(new MessageDisplay
-                {   
+                {
                     Text = plainText,
                     SenderName = senderName,
-                    Time = msg.Timestamp.ToString("t"),
+                    Time = msg.Timestamp.ToLocalTime().ToString("t"),
                     Alignment = msg.SenderId == _currentUserId ? "Right" : "Left",
                     BubbleColor = msg.SenderId == _currentUserId ? "#0078D7" : "#E0E0E0",
                     ShowSender = msg.SenderId == _currentUserId ? "Collapsed" : "Visible",
@@ -196,6 +232,10 @@ namespace Diploma
             }
 
             MessagesListBox.ItemsSource = displayMessages;
+
+            // Scroll to the very bottom so the end of the last message is visible
+            Dispatcher.BeginInvoke(new Action(() => ScrollMessagesToBottom()),
+                                   System.Windows.Threading.DispatcherPriority.Loaded);
 
             // Mark unread messages as read (this triggers server to set Read and notify sender)
             if (messages.Any(m => m.SenderId != _currentUserId && m.Status != "Read"))
@@ -315,6 +355,16 @@ namespace Diploma
         {
             MessageBox.Show("Settings will be implemented later.");
         }
+
+        private void CopyMessage_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuItem menuItem &&
+                menuItem.DataContext is MessageDisplay message)
+            {
+                Clipboard.SetText(message.Text);
+            }
+        }
+
         private async Task ConnectWebSocket()
         {
             _wsService = new WebSocketService($"wss://localhost:5001/ws?userId={_currentUserId}", OnWebSocketMessage);

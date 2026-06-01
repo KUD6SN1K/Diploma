@@ -30,7 +30,7 @@
                     <!-- Friend requests list (fixed height) -->
                     <RowDefinition Height="Auto"/>
                     <!-- Chats header -->
-                    <RowDefinition Height="*"/>
+                    <RowDefinition Height=" *"/>
                     <!-- Chat list (remaining space) -->
                     <RowDefinition Height="Auto"/>
                     <!-- Settings button -->
@@ -87,65 +87,127 @@
                 <TextBlock Grid.Row="3" Text="Chats" FontWeight="SemiBold" Margin="0,10,0,5"/>
 
                 <!-- Chat list (contacts) -->
-                <ListBox x:Name="ChatListBox" Grid.Row="4"
-         BorderThickness="0" Background="Transparent"
+                <ListBox x:Name="ChatListBox"
+         Grid.Row="4"
+         BorderThickness="0"
+         Background="Transparent"
          SelectionChanged="ChatListBox_SelectionChanged"
-         HorizontalContentAlignment="Stretch">
+         HorizontalContentAlignment="Stretch"
+         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+         ScrollViewer.VerticalScrollBarVisibility="Auto">
+
                     <ListBox.Resources>
                         <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
                     </ListBox.Resources>
+
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Margin" Value="0,1"/>
+                            <Setter Property="Padding" Value="10,8"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="12"
+                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#1F6FEB"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#0F000000"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,3">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
 
-                                <!-- Left area -->
-                                <StackPanel Grid.Column="0">
-                                    <!-- Name + green dot -->
-                                    <StackPanel Orientation="Horizontal">
-                                        <Ellipse Width="8" Height="8" Fill="LimeGreen" 
-                                 VerticalAlignment="Center" Margin="0,0,5,0"
-                                 Visibility="{Binding IsOnline, Converter={StaticResource BoolToVisibility}}"/>
-                                        <TextBlock Text="{Binding ContactName}" FontSize="15" FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis" MaxWidth="180"
-                                   ToolTip="{Binding ContactName}"/>
-                                    </StackPanel>
+                                <!-- Avatar with online dot -->
+                                <Grid Width="44" Height="44" Margin="0,0,12,0">
+                                    <Ellipse Fill="#E5E7EB"/>
+                                    <TextBlock Text="{Binding Initials}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Foreground="#111827"/>
+                                    <Ellipse Width="10" Height="10"
+                             Fill="#22C55E"
+                             HorizontalAlignment="Right"
+                             VerticalAlignment="Bottom"
+                             Margin="0,0,1,1"
+                             Stroke="White"
+                             StrokeThickness="2"
+                             Visibility="{Binding IsOnline, Converter={StaticResource BoolToVisibility}}"/>
+                                </Grid>
 
-                                    <!-- Preview row -->
-                                    <Grid Margin="0,2,0,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
+                                <!-- Name + last message -->
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding ContactName}"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="#111827"
+                               TextTrimming="CharacterEllipsis"
+                               MaxWidth="220"
+                               ToolTip="{Binding ContactName}"/>
 
-                                        <TextBlock Grid.Column="0" 
-                                   Text="{Binding LastMessage}" FontSize="12" Foreground="Gray" 
-                                   TextTrimming="CharacterEllipsis"/>
-
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                    VerticalAlignment="Center" Margin="6,0,0,0">
-                                            <TextBlock Text="{Binding LastMessageTimeText}" FontSize="10" 
-                                       Foreground="Gray"/>
-                                            <TextBlock Text="{Binding LastMessageStatusIcon}" FontSize="10" 
-                                       Foreground="Gray" Margin="4,0,0,0"
-                                       Width="14"/>
-                                        </StackPanel>
-                                    </Grid>
+                                    <TextBlock Text="{Binding LastMessage}"
+                               Margin="0,3,0,0"
+                               FontSize="12.5"
+                               Foreground="#6B7280"
+                               TextTrimming="CharacterEllipsis"
+                               MaxWidth="240"/>
                                 </StackPanel>
 
-                                <!-- Unread bubble -->
-                                <Border Grid.Column="1" 
-                        Width="22" Height="22" 
-                        Background="Gray" CornerRadius="11"
-                        VerticalAlignment="Center" Margin="8,0,0,0"
-                        Visibility="{Binding HasUnread, Converter={StaticResource BoolToVisibility}}">
-                                    <TextBlock Text="{Binding UnreadCount}" 
-                               Foreground="White" FontSize="11" 
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
+                                <!-- Right column: time + marks + unread bubble -->
+                                <StackPanel Grid.Column="2"
+                            VerticalAlignment="Center"
+                            Margin="12,0,0,0"
+                            HorizontalAlignment="Right">
+
+                                    <!-- Time and status marks together -->
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <TextBlock Text="{Binding LastMessageTimeText}"
+                                   FontSize="10.5"
+                                   Foreground="#9CA3AF"/>
+                                        <TextBlock Text="{Binding LastMessageStatusIcon}"
+                                   FontSize="10.5"
+                                   Foreground="#9CA3AF"
+                                   Margin="4,0,0,0"
+                                   Width="14"/>
+                                    </StackPanel>
+
+                                    <!-- Unread bubble (only if HasUnread) -->
+                                    <Border Width="22"
+                            Height="22"
+                            Margin="0,6,0,0"
+                            Background="#1F6FEB"
+                            CornerRadius="11"
+                            HorizontalAlignment="Right"
+                            Visibility="{Binding HasUnread, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="{Binding UnreadCount}"
+                                   Foreground="White"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                                    </Border>
+                                </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

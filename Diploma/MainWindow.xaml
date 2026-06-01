@@ -90,37 +90,35 @@
                 <ListBox x:Name="ChatListBox" Grid.Row="4"
          BorderThickness="0" Background="Transparent"
          SelectionChanged="ChatListBox_SelectionChanged"
-         HorizontalContentAlignment="Stretch"
-         ScrollViewer.CanContentScroll="False">
+         HorizontalContentAlignment="Stretch">
                     <ListBox.Resources>
                         <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
                     </ListBox.Resources>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <!-- Outer grid: two main columns (left: name+preview, right: unread bubble) -->
                             <Grid Margin="0,3">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
 
-                                <!-- Left area: contact name + preview line -->
+                                <!-- Left area -->
                                 <StackPanel Grid.Column="0">
                                     <!-- Name + green dot -->
                                     <StackPanel Orientation="Horizontal">
                                         <Ellipse Width="8" Height="8" Fill="LimeGreen" 
                                  VerticalAlignment="Center" Margin="0,0,5,0"
                                  Visibility="{Binding IsOnline, Converter={StaticResource BoolToVisibility}}"/>
-                                        <TextBlock Text="{Binding ContactName}" FontSize="15" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding ContactName}" FontSize="15" FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" MaxWidth="180"
+                                   ToolTip="{Binding ContactName}"/>
                                     </StackPanel>
 
-                                    <!-- Preview row: message text (truncatable) + fixed right panel (time, status) -->
+                                    <!-- Preview row -->
                                     <Grid Margin="0,2,0,0">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
-                                            <!-- message text, will truncate -->
                                             <ColumnDefinition Width="Auto"/>
-                                            <!-- time + marks (never hidden) -->
                                         </Grid.ColumnDefinitions>
 
                                         <TextBlock Grid.Column="0" 
@@ -132,12 +130,13 @@
                                             <TextBlock Text="{Binding LastMessageTimeText}" FontSize="10" 
                                        Foreground="Gray"/>
                                             <TextBlock Text="{Binding LastMessageStatusIcon}" FontSize="10" 
-                                       Foreground="Gray" Margin="4,0,0,0"/>
+                                       Foreground="Gray" Margin="4,0,0,0"
+                                       Width="14"/>
                                         </StackPanel>
                                     </Grid>
                                 </StackPanel>
 
-                                <!-- Unread bubble (always fixed on the far right) -->
+                                <!-- Unread bubble -->
                                 <Border Grid.Column="1" 
                         Width="22" Height="22" 
                         Background="Gray" CornerRadius="11"

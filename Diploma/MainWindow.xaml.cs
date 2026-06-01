@@ -131,6 +131,7 @@ namespace Diploma
                 return;
 
             _selectedChat = selected;
+            MessagesListBox.ItemsSource = null;
             if (selected.IsOnline)
             {
                 OnlineStatusText.Text = "Online";
@@ -165,7 +166,7 @@ namespace Diploma
         {
             if (e.Key == System.Windows.Input.Key.Escape)
             {
-                // Deselect the chat
+                // Deselect the chat    
                 ChatListBox.SelectedItem = null;
                 _selectedChat = null;
 
@@ -185,62 +186,73 @@ namespace Diploma
         // ========== Load messages ==========
         private async void LoadMessages(Guid conversationId)
         {
-            if (_selectedChat == null) return;
+            // Capture the conversation we are loading for
+            var targetConvId = conversationId;
 
-            string contactPublicKey = _selectedChat.PublicKey;
-            var messages = await _api.GetMessages(conversationId);
-            var displayMessages = new ObservableCollection<MessageDisplay>();
+            string contactPublicKey = _selectedChat?.PublicKey;
+            if (contactPublicKey == null) return;
 
-            foreach (var msg in messages)
+            var messages = await _api.GetMessages(targetConvId);
+
+            // Run decryption on a background thread
+            var displayMessages = await Task.Run(() =>
             {
-                string plainText;
-                try
+                var list = new ObservableCollection<MessageDisplay>();
+                foreach (var msg in messages)
                 {
-                    byte[] ciphertext = Convert.FromBase64String(msg.EncryptedContent);
-                    byte[] decrypted = ECCryptoService.DecryptData(ciphertext, _currentPrivateKey, contactPublicKey);
-                    plainText = Encoding.UTF8.GetString(decrypted);
-                }
-                catch
-                {
-                    plainText = "[decryption failed]";
-                }
-
-                string senderName = msg.SenderId == _currentUserId ? _currentDisplayName : _selectedChat.ContactName;
-
-                string statusIcon = "";
-                if (msg.SenderId == _currentUserId)
-                {
-                    statusIcon = msg.Status switch
+                    string plainText;
+                    try
                     {
-                        "Sent" => "✓",
-                        "Read" => "✓✓",
-                        _ => ""
-                    };
-                }
+                        byte[] ciphertext = Convert.FromBase64String(msg.EncryptedContent);
+                        byte[] decrypted = ECCryptoService.DecryptData(
+                            ciphertext, _currentPrivateKey, contactPublicKey);
+                        plainText = Encoding.UTF8.GetString(decrypted);
+                    }
+                    catch
+                    {
+                        plainText = "[decryption failed]";
+                    }
 
-                displayMessages.Add(new MessageDisplay
-                {
-                    Text = plainText,
-                    SenderName = senderName,
-                    Time = msg.Timestamp.ToLocalTime().ToString("t"),
-                    Alignment = msg.SenderId == _currentUserId ? "Right" : "Left",
-                    BubbleColor = msg.SenderId == _currentUserId ? "#0078D7" : "#E0E0E0",
-                    ShowSender = msg.SenderId == _currentUserId ? "Collapsed" : "Visible",
-                    StatusIcon = statusIcon,
-                    MessageId = msg.MessageId
-                });
-            }
+                    string statusIcon = "";
+                    if (msg.SenderId == _currentUserId)
+                    {
+                        statusIcon = msg.Status switch
+                        {
+                            "Sent" => "✓",
+                            "Read" => "✓✓",
+                            _ => ""
+                        };
+                    }
+
+                    list.Add(new MessageDisplay
+                    {
+                        Text = plainText,
+                        SenderName = msg.SenderId == _currentUserId ? _currentDisplayName : _selectedChat?.ContactName ?? "",
+                        Time = msg.Timestamp.ToLocalTime().ToString("t"),
+                        Alignment = msg.SenderId == _currentUserId ? "Right" : "Left",
+                        BubbleColor = msg.SenderId == _currentUserId ? "#0078D7" : "#E0E0E0",
+                        ShowSender = msg.SenderId == _currentUserId ? "Collapsed" : "Visible",
+                        StatusIcon = statusIcon,
+                        MessageId = msg.MessageId
+                    });
+                }
+                return list;
+            });
+
+            // ** Guard: only apply if the selected chat still matches **
+            if (_selectedChat == null || _selectedChat.ConversationId != targetConvId)
+                return;
 
             MessagesListBox.ItemsSource = displayMessages;
 
-            // Scroll to the very bottom so the end of the last message is visible
+            // Scroll to the bottom
             Dispatcher.BeginInvoke(new Action(() => ScrollMessagesToBottom()),
                                    System.Windows.Threading.DispatcherPriority.Loaded);
 
-            // Mark unread messages as read (this triggers server to set Read and notify sender)
+            // Mark as read
             if (messages.Any(m => m.SenderId != _currentUserId && m.Status != "Read"))
             {
-                await _api.MarkAsRead(conversationId);
+                await _api.MarkAsRead(targetConvId);
             }
         }
 
@@ -295,6 +307,7 @@ namespace Diploma
                 _selectedChat.LastMessage = text.Length > 25 ? text.Substring(0, 25) + "..." : text;
                 _selectedChat.LastMessageStatus = "Sent";
                 _selectedChat.IsLastMessageFromMe = true;
+                _selectedChat.LastMessageTimestamp = DateTime.Now;
                 ChatListBox.Items.Refresh();
 
                 MessageTextBox.Clear();
@@ -416,7 +429,11 @@ namespace Diploma
                         // The new message is from the other user, so clear any sender‑side marks
                         targetChat.IsLastMessageFromMe = false;
                         targetChat.LastMessageStatus = "";   // no check marks for the receiver
-
+                                                             // Update timestamp from the server notification
+                        if (doc.RootElement.TryGetProperty("timestamp", out var tsElement))
+                        {
+                            targetChat.LastMessageTimestamp = DateTime.Parse(tsElement.GetString(), null, System.Globalization.DateTimeStyles.RoundtripKind);
+                        }
                         // Increment unread count if this conversation is NOT currently selected
                         if (_selectedChat?.ConversationId != newConvId)
                         {

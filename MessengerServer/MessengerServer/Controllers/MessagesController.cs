@@ -46,7 +46,8 @@ namespace MessengerServer.Controllers
                 conversationId = dto.ConversationId.ToString(),
                 messageId = dto.MessageId.ToString(),
                 encryptedContent = dto.EncryptedContent,   // the new message’s encrypted data (base64)
-                senderId = dto.SenderId.ToString()
+                senderId = dto.SenderId.ToString(),
+                timestamp = msg.Timestamp.ToString("o")   // ISO 8601 (e.g. 2026-01-01T12:30:45.1234567Z)
             });
             await _connMgr.SendAsync(recipientId, notification);
 

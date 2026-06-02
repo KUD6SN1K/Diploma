@@ -3,7 +3,9 @@ using Diploma.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Windows;
@@ -428,7 +430,7 @@ namespace Diploma
             }
             ChatListBox.Items.Refresh();
         }
-        private void OnWebSocketMessage(string message)
+        private async void OnWebSocketMessage(string message)
         {
             // Parse simple JSON manually (you can use System.Text.Json if you prefer)
             var doc = System.Text.Json.JsonDocument.Parse(message);
@@ -504,31 +506,37 @@ namespace Diploma
                     _ = LoadPendingRequestsAsync();
                     break;
                 case "message_status":
-                    var msgId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString());
-                    var newStatus = doc.RootElement.GetProperty("newStatus").GetString(); // "Read"
-                    var statusConvId = Guid.Parse(doc.RootElement.GetProperty("conversationId").GetString());
-
-                    // Update in open chat
-                    if (_selectedChat?.ConversationId == statusConvId)
                     {
-                        var displayList = MessagesListBox.ItemsSource as ObservableCollection<MessageDisplay>;
-                        var msg = displayList?.FirstOrDefault(m => m.MessageId == msgId);
-                        if (msg != null)
+                        var msgId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString());
+                        var newStatus = doc.RootElement.GetProperty("newStatus").GetString();
+                        var statusConvId = Guid.Parse(doc.RootElement.GetProperty("conversationId").GetString());
+
+                        await Application.Current.Dispatcher.InvokeAsync(() =>
                         {
-                            msg.StatusIcon = "✓✓";
-                            MessagesListBox.Items.Refresh();
-                        }
-                    }
+                            if (_selectedChat?.ConversationId == statusConvId)
+                            {
+                                if (MessagesListBox.ItemsSource is ObservableCollection<MessageDisplay> list)
+                                {
+                                    var msg = list.FirstOrDefault(m => m.MessageId == msgId);
+                                    if (msg != null)
+                                    {
+                                        msg.StatusIcon = "✓✓";
+                                    }
+                                }
+                            }
 
-                    // Update sidebar last message icon
-                    var sidebarChatList = ChatListBox.ItemsSource as List<ChatItem>;
-                    var chatItem = sidebarChatList?.FirstOrDefault(c => c.ConversationId == statusConvId);
-                    if (chatItem != null && chatItem.IsLastMessageFromMe)
-                    {
-                        chatItem.LastMessageStatus = newStatus;
-                        ChatListBox.Items.Refresh();
+                            if (ChatListBox.ItemsSource is IEnumerable<ChatItem> chats)
+                            {
+                                var chatItem = chats.FirstOrDefault(c => c.ConversationId == statusConvId);
+                                if (chatItem != null && chatItem.IsLastMessageFromMe)
+                                {
+                                    chatItem.LastMessageStatus = newStatus;
+                                }
+                            }
+                        });
+
+                        break;
                     }
-                    break;
                 case "presence":
                     var presUserId = Guid.Parse(doc.RootElement.GetProperty("userId").GetString());
                     var isOnline = doc.RootElement.GetProperty("isOnline").GetBoolean();
@@ -616,13 +624,37 @@ namespace Diploma
         public Guid RequestId { get; set; }
     }
 
-    public class MessageDisplay
+    public class MessageDisplay : INotifyPropertyChanged
     {
-        public string Text { get; set; }
-        public string SenderName { get; set; }
-        public string Time { get; set; }
-        public string StatusIcon { get; set; }
         public Guid MessageId { get; set; }
-        public bool IsMine { get; set; }   // <-- new
+
+        public string Text { get; set; }
+
+        public string SenderName { get; set; }
+
+        public string Time { get; set; }
+
+        public bool IsMine { get; set; }
+
+        private string statusIcon;
+        public string StatusIcon
+        {
+            get => statusIcon;
+            set
+            {
+                if (statusIcon != value)
+                {
+                    statusIcon = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
     }
 }

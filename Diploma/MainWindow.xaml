@@ -94,8 +94,8 @@
          SelectionChanged="ChatListBox_SelectionChanged"
          HorizontalContentAlignment="Stretch"
          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-         ScrollViewer.VerticalScrollBarVisibility="Auto">
-
+         ScrollViewer.VerticalScrollBarVisibility="Auto"
+         ScrollViewer.CanContentScroll="False">
                     <ListBox.Resources>
                         <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
                     </ListBox.Resources>
@@ -237,37 +237,87 @@
             </StackPanel>
 
             <!-- Messages list -->
-            <ListBox x:Name="MessagesListBox" 
+            <ListBox x:Name="MessagesListBox"
          Grid.Row="1"
          BorderThickness="0"
-         HorizontalContentAlignment="Stretch"
+         Background="Transparent"
+         ScrollViewer.CanContentScroll="False"
          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-         ScrollViewer.CanContentScroll="False">
+         ScrollViewer.VerticalScrollBarVisibility="Auto">
+
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="Margin" Value="0"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Focusable" Value="False"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border Background="Transparent">
+                                        <ContentPresenter/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <Grid Margin="5">
-                            <Border CornerRadius="10" 
-                        Padding="10,5" 
+                        <Grid Margin="5" HorizontalAlignment="Stretch">
+                            <Border x:Name="Bubble"
+                        CornerRadius="10"
+                        Padding="10,5"
                         MaxWidth="400"
-                        HorizontalAlignment="{Binding Alignment}"
-                        Background="{Binding BubbleColor}">
+                        HorizontalAlignment="Left"
+                        Background="#E0E0E0">
                                 <Border.ContextMenu>
                                     <ContextMenu>
                                         <MenuItem Header="Copy" Click="CopyMessage_Click"/>
                                     </ContextMenu>
                                 </Border.ContextMenu>
+
                                 <StackPanel>
-                                    <!-- Sender name removed – chat header already shows it -->
-                                    <TextBlock Text="{Binding Text}" 
+                                    <TextBlock Text="{Binding Text}"
                                    FontSize="14"
                                    TextWrapping="Wrap"/>
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <TextBlock Text="{Binding Time}" FontSize="10" Foreground="Gray"/>
-                                        <TextBlock Text="{Binding StatusIcon}" FontSize="10" Foreground="Gray" Margin="4,0,0,0"/>
+
+                                    <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Right">
+                                        <TextBlock Text="{Binding Time}"
+                                       FontSize="10"
+                                       Foreground="Gray"/>
+                                        <TextBlock Text="{Binding StatusIcon}"
+                                       FontSize="10"
+                                       Foreground="Gray"
+                                       Margin="4,0,0,0"/>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
                         </Grid>
+
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding IsMine}" Value="True">
+                                <Setter TargetName="Bubble"
+                            Property="HorizontalAlignment"
+                            Value="Right"/>
+                                <Setter TargetName="Bubble"
+                            Property="Background"
+                            Value="#0078D7"/>
+                            </DataTrigger>
+
+                            <DataTrigger Binding="{Binding IsMine}" Value="False">
+                                <Setter TargetName="Bubble"
+                            Property="HorizontalAlignment"
+                            Value="Left"/>
+                                <Setter TargetName="Bubble"
+                            Property="Background"
+                            Value="#E0E0E0"/>
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
@@ -282,7 +332,8 @@
                          Grid.Column="0"
                          VerticalAlignment="Center"
                          AcceptsReturn="False"
-                         FontSize="14" Height="32"/>
+                         FontSize="14" Height="32"
+                         KeyDown="MessageTextBox_KeyDown"/>
                 <Button x:Name="SendButton"
                         Grid.Column="1" 
                         Content="Send" 

@@ -229,25 +229,35 @@ namespace Diploma
                         Text = plainText,
                         SenderName = msg.SenderId == _currentUserId ? _currentDisplayName : _selectedChat?.ContactName ?? "",
                         Time = msg.Timestamp.ToLocalTime().ToString("t"),
-                        Alignment = msg.SenderId == _currentUserId ? "Right" : "Left",
-                        BubbleColor = msg.SenderId == _currentUserId ? "#0078D7" : "#E0E0E0",
-                        ShowSender = msg.SenderId == _currentUserId ? "Collapsed" : "Visible",
                         StatusIcon = statusIcon,
-                        MessageId = msg.MessageId
+                        MessageId = msg.MessageId,
+                        IsMine = msg.SenderId == _currentUserId   // <-- true for own messages
                     });
                 }
                 return list;
             });
 
             // ** Guard: only apply if the selected chat still matches **
+            // Apply results on the UI thread
             if (_selectedChat == null || _selectedChat.ConversationId != targetConvId)
                 return;
 
-            MessagesListBox.ItemsSource = displayMessages;
+            // Reuse the same ObservableCollection if possible, to avoid full visual rebuild
+            var currentCollection = MessagesListBox.ItemsSource as ObservableCollection<MessageDisplay>;
+            if (currentCollection != null)
+            {
+                currentCollection.Clear();
+                foreach (var msg in displayMessages)
+                    currentCollection.Add(msg);
+            }
+            else
+            {
+                MessagesListBox.ItemsSource = displayMessages;
+            }
 
-            // Scroll to the bottom
+            // Scroll after layout is done (low priority)
             Dispatcher.BeginInvoke(new Action(() => ScrollMessagesToBottom()),
-                                   System.Windows.Threading.DispatcherPriority.Loaded);
+                                   System.Windows.Threading.DispatcherPriority.Background);
 
             // Mark as read
             if (messages.Any(m => m.SenderId != _currentUserId && m.Status != "Read"))
@@ -275,46 +285,70 @@ namespace Diploma
                 return;
             }
 
+            // Encrypt the message
             byte[] ciphertext = ECCryptoService.EncryptData(
                 Encoding.UTF8.GetBytes(text),
                 _currentPrivateKey,
                 _selectedChat.PublicKey);
 
             Guid messageId = Guid.NewGuid();
-            bool success = await _api.SendMessage(messageId, _selectedChat.ConversationId, ciphertext);
 
-            if (success)
+            // ---- 1. Show the message instantly ----
+            var displayMsg = new MessageDisplay
             {
-                // Create and add the local message with status ✓
-                var displayMsg = new MessageDisplay
-                {
-                    Text = text,
-                    SenderName = _currentDisplayName,
-                    Time = DateTime.Now.ToString("t"),
-                    Alignment = "Right",
-                    BubbleColor = "#0078D7",
-                    ShowSender = "Collapsed",
-                    StatusIcon = "✓",          // <-- one check
-                    MessageId = messageId
-                };
+                Text = text,
+                SenderName = _currentDisplayName,
+                Time = DateTime.Now.ToString("t"),
+                StatusIcon = "✓",
+                MessageId = messageId,
+                IsMine = true
+            };
 
-                // Add to the same ObservableCollection used by the ListBox
-                var messages = MessagesListBox.ItemsSource as ObservableCollection<MessageDisplay>;
-                messages?.Add(displayMsg);
-                MessagesListBox.Items.Refresh();
-
-                // Update the chat list preview
-                _selectedChat.LastMessage = text.Length > 25 ? text.Substring(0, 25) + "..." : text;
-                _selectedChat.LastMessageStatus = "Sent";
-                _selectedChat.IsLastMessageFromMe = true;
-                _selectedChat.LastMessageTimestamp = DateTime.Now;
-                ChatListBox.Items.Refresh();
-
-                MessageTextBox.Clear();
+            if (MessagesListBox.ItemsSource is ObservableCollection<MessageDisplay> messages)
+            {
+                messages.Add(displayMsg);
+                // REMOVED: MessagesListBox.Items.Refresh();  <-- ObservableCollection handles this
             }
-            else
+
+            // Scroll to the new message AFTER the layout has finished, on a low priority
+            Dispatcher.BeginInvoke(new Action(() =>
             {
-                MessageBox.Show("Failed to send message.");
+                MessagesListBox.ScrollIntoView(displayMsg);
+            }), System.Windows.Threading.DispatcherPriority.Background);
+
+            // Update the chat list preview (the rest is the same, but we keep Refresh for now)
+            _selectedChat.LastMessage = text.Length > 25 ? text.Substring(0, 25) + "..." : text;
+            _selectedChat.LastMessageStatus = "Sent";
+            _selectedChat.IsLastMessageFromMe = true;
+            _selectedChat.LastMessageTimestamp = DateTime.Now;
+            ChatListBox.Items.Refresh();
+
+            MessageTextBox.Clear();
+
+            // ---- 2. Send to server in background (fire-and-forget) ----
+            _ = Task.Run(async () =>
+            {
+                bool success = await _api.SendMessage(messageId, _selectedChat.ConversationId, ciphertext);
+                if (!success)
+                {
+                    // Mark the message as failed on the UI thread
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        displayMsg.StatusIcon = "⚠";
+                        MessagesListBox.Items.Refresh();
+                    });
+                }
+            });
+        }
+
+        private void MessageTextBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter)
+            {
+                // Prevent the "ding" sound or any default behavior
+                e.Handled = true;
+                // Trigger the send button click logic
+                SendButton_Click(sender, e);
             }
         }
 
@@ -587,10 +621,8 @@ namespace Diploma
         public string Text { get; set; }
         public string SenderName { get; set; }
         public string Time { get; set; }
-        public string Alignment { get; set; }
-        public string BubbleColor { get; set; }
-        public string ShowSender { get; set; }
-        public string StatusIcon { get; set; }   
-        public Guid MessageId { get; set; }    
+        public string StatusIcon { get; set; }
+        public Guid MessageId { get; set; }
+        public bool IsMine { get; set; }   // <-- new
     }
 }

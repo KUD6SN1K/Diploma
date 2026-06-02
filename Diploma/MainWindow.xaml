@@ -51,7 +51,8 @@
                 <ListBox x:Name="FriendRequestsListBox" Grid.Row="2"
          BorderThickness="0" Background="Transparent"
          HorizontalContentAlignment="Stretch"
-         ScrollViewer.CanContentScroll="False">
+         ScrollViewer.CanContentScroll="True"
+         VirtualizingPanel.ScrollUnit="Pixel">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Grid Margin="0,2">
@@ -95,7 +96,8 @@
          HorizontalContentAlignment="Stretch"
          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
          ScrollViewer.VerticalScrollBarVisibility="Auto"
-         ScrollViewer.CanContentScroll="False">
+         ScrollViewer.CanContentScroll="True"
+         VirtualizingPanel.ScrollUnit="Pixel">
                     <ListBox.Resources>
                         <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
                     </ListBox.Resources>
@@ -241,7 +243,9 @@
          Grid.Row="1"
          BorderThickness="0"
          Background="Transparent"
-         ScrollViewer.CanContentScroll="False"
+         ScrollViewer.CanContentScroll="True"
+         VirtualizingStackPanel.IsVirtualizing="True"
+         VirtualizingPanel.ScrollUnit="Pixel"
          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
          ScrollViewer.VerticalScrollBarVisibility="Auto">
 

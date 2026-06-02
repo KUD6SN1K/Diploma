@@ -445,7 +445,53 @@ namespace Diploma
 
                     // Load messages if this conversation is open
                     if (_selectedChat?.ConversationId == newConvId)
-                        LoadMessages(newConvId);
+                    {
+                        _ = Task.Run(() =>
+                        {
+                            try
+                            {
+                                byte[] ciphertext = Convert.FromBase64String(encryptedContentB64);
+
+                                byte[] decrypted = ECCryptoService.DecryptData(
+                                    ciphertext,
+                                    _currentPrivateKey,
+                                    _selectedChat.PublicKey);
+
+                                string plainText = Encoding.UTF8.GetString(decrypted);
+
+                                var displayMsg = new MessageDisplay
+                                {
+                                    Text = plainText,
+                                    SenderName = _selectedChat.ContactName,
+                                    Time = DateTime.Parse(
+                                        doc.RootElement.GetProperty("timestamp").GetString())
+                                        .ToLocalTime()
+                                        .ToString("t"),
+
+                                    StatusIcon = "",
+                                    MessageId = Guid.Parse(
+                                        doc.RootElement.GetProperty("messageId").GetString()),
+
+                                    IsMine = false
+                                };
+
+                                Application.Current.Dispatcher.BeginInvoke(() =>
+                                {
+                                    if (MessagesListBox.ItemsSource is ObservableCollection<MessageDisplay> list)
+                                    {
+                                        list.Add(displayMsg);
+                                    }
+                                });
+                                Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    MessagesListBox.ScrollIntoView(displayMsg);
+                                }), System.Windows.Threading.DispatcherPriority.Background);
+                            }
+                            catch
+                            {
+                            }
+                        });
+                    }
 
                     // Update last message preview
                     var chatList = ChatListBox.ItemsSource as List<ChatItem>;

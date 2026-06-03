@@ -6,6 +6,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Windows;
+using System.Windows.Input;
 
 namespace Diploma
 {
@@ -103,6 +104,31 @@ namespace Diploma
             registerWindow.Show();
             this.Close();
         }
+
+        private void PasswordTextBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                LoginButton_Click(sender, e);
+            }
+        }
+        private void UsernameBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                LoginButton_Click(sender, e);
+            }
+        }
+        private void Window_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {          
+                Keyboard.ClearFocus();
+            }
+        }
+
     }
 
     // DTOs for JSON responses

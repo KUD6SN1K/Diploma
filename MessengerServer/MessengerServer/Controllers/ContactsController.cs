@@ -42,10 +42,12 @@ public class ContactsController : ControllerBase
         await _db.SaveChangesAsync();
 
         // Notify target user about incoming friend request
-        var notification = System.Text.Json.JsonSerializer.Serialize(new
+        var senderUsername = _db.Users.Find(dto.SenderUserId)?.Username;
+        var notification = JsonSerializer.Serialize(new
         {
             type = "friend_request",
-            fromUsername = _db.Users.Find(dto.SenderUserId)?.Username
+            requestId = contact.ContactId,
+            fromUsername = senderUsername
         });
         await _connMgr.SendAsync(target.UserId, notification);
 

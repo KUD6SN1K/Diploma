@@ -238,7 +238,6 @@
                 <TextBlock x:Name="OnlineStatusText" FontSize="12" Foreground="LimeGreen" Visibility="Collapsed"/>
             </StackPanel>
 
-            <!-- Messages list -->
             <ListBox x:Name="MessagesListBox"
          Grid.Row="1"
          BorderThickness="0"
@@ -278,16 +277,22 @@
                         MaxWidth="400"
                         HorizontalAlignment="Left"
                         Background="#E0E0E0">
-                                <Border.ContextMenu>
-                                    <ContextMenu>
-                                        <MenuItem Header="Copy" Click="CopyMessage_Click"/>
-                                    </ContextMenu>
-                                </Border.ContextMenu>
-
                                 <StackPanel>
-                                    <TextBlock Text="{Binding Text}"
-                                   FontSize="14"
-                                   TextWrapping="Wrap"/>
+                                    <!-- Selectable text (like Telegram) -->
+                                    <TextBox Text="{Binding Text}" 
+                                 FontSize="14" 
+                                 TextWrapping="Wrap"
+                                 IsReadOnly="True"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 CaretBrush="Transparent"
+                                 Style="{x:Null}">
+                                        <TextBox.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Copy" Click="CopyMessage_Click"/>
+                                            </ContextMenu>
+                                        </TextBox.ContextMenu>
+                                    </TextBox>
 
                                     <StackPanel Orientation="Horizontal"
                                     HorizontalAlignment="Right">

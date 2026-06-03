@@ -12,7 +12,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media;
+
 namespace Diploma
 {
     public partial class MainWindow : Window
@@ -29,11 +29,18 @@ namespace Diploma
         private Mutex _userMutex;
         private HashSet<Guid> _onlineUserIds = new HashSet<Guid>();
 
+        // Observable collections for automatic UI updates without Refresh()
+        private ObservableCollection<ChatItem> _chatItems;
+        private ObservableCollection<FriendRequestItem> _friendRequests;
+        private ObservableCollection<MessageDisplay> _messages = new ObservableCollection<MessageDisplay>();
+        private bool _isLoadingMessages = false;
+        private List<MessageDisplay> _pendingIncomingMessages = new List<MessageDisplay>();
+        private readonly List<MessageDisplay> _pendingOutgoingMessages = new List<MessageDisplay>();
         public MainWindow(Guid userId, string username, string displayName,
                           string privateKey, string publicKey, Mutex userMutex)
         {
             InitializeComponent();
-          
+            MessagesListBox.ItemsSource = _messages;
             _currentUserId = userId;
             _currentUsername = username;
             _currentDisplayName = displayName;
@@ -43,7 +50,7 @@ namespace Diploma
 
             _api = new ApiService("https://localhost:5001", userId);
             _keyManager = new KeyManager(userId);
-            // Wait until the window is fully loaded, then load data and connect
+
             this.Loaded += async (s, e) =>
             {
                 await LoadContactsAsync();
@@ -57,7 +64,6 @@ namespace Diploma
             };
         }
 
-        // ========== Load contacts ==========
         private async Task LoadContactsAsync()
         {
             string selectedUsername = _selectedChat?.Username;
@@ -92,68 +98,72 @@ namespace Diploma
                 };
             }).ToList();
 
-            ChatListBox.ItemsSource = chatItems;
-
+            _chatItems = new ObservableCollection<ChatItem>(chatItems);
+            ChatListBox.ItemsSource = _chatItems;
+            ResortChats();
             if (selectedUsername != null)
             {
-                var previouslySelected = chatItems.FirstOrDefault(ci => ci.Username == selectedUsername);
+                var previouslySelected = _chatItems.FirstOrDefault(ci => ci.Username == selectedUsername);
                 if (previouslySelected != null)
                     ChatListBox.SelectedItem = previouslySelected;
             }
             ApplyOnlineStatusFromCache();
         }
 
-        // ========== Load pending friend requests ==========
         private async Task LoadPendingRequestsAsync()
         {
             var requests = await _api.GetPendingRequests();
-            FriendRequestsListBox.ItemsSource = requests.Select(r => new FriendRequestItem
-            {
-                FromUsername = r.FromUsername,
-                RequestId = r.ContactId
-            }).ToList();
+            _friendRequests = new ObservableCollection<FriendRequestItem>(
+                requests.Select(r => new FriendRequestItem
+                {
+                    FromUsername = r.FromUsername,
+                    RequestId = r.ContactId
+                })
+            );
+            FriendRequestsListBox.ItemsSource = _friendRequests;
         }
 
- 
         private void ScrollMessagesToBottom()
         {
-            // Find the ScrollViewer inside the ListBox template
             if (VisualTreeHelper.GetChildrenCount(MessagesListBox) > 0)
             {
                 var border = VisualTreeHelper.GetChild(MessagesListBox, 0) as Decorator;
                 var scrollViewer = border?.Child as ScrollViewer;
                 scrollViewer?.ScrollToEnd();
+                MessagesListBox.Opacity = 1;
             }
         }
-        // ========== Chat selection ==========
+
         private async void ChatListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-          
             if (ChatListBox.SelectedItem is not ChatItem selected)
                 return;
 
             _selectedChat = selected;
-            MessagesListBox.ItemsSource = null;
+            _messages.Clear();
             if (selected.IsOnline)
             {
                 OnlineStatusText.Text = "Online";
-                OnlineStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.LimeGreen);
-                OnlineStatusText.Visibility = System.Windows.Visibility.Visible;
+                OnlineStatusText.Foreground = new SolidColorBrush(Colors.LimeGreen);
+                OnlineStatusText.Visibility = Visibility.Visible;
             }
             else
             {
                 OnlineStatusText.Text = "Offline";
-                OnlineStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gray);
-                OnlineStatusText.Visibility = System.Windows.Visibility.Visible;
+                OnlineStatusText.Foreground = new SolidColorBrush(Colors.Gray);
+                OnlineStatusText.Visibility = Visibility.Visible;
             }
             ChatHeaderText.Text = selected.ContactName;
-            // Reset unread count for the selected chat
             selected.UnreadCount = 0;
-            ChatListBox.Items.Refresh();   // optional, can be done after conversation load
+            // No Refresh() needed – UnreadCount property change will notify UI
+
             var conv = await _api.GetConversation(selected.Username);
             if (conv != null)
             {
                 selected.ConversationId = conv.ConversationId;
+                // Clear any pending messages from a previous load
+                _pendingIncomingMessages.Clear();
+                _isLoadingMessages = true;
                 LoadMessages(selected.ConversationId);
             }
             else
@@ -164,43 +174,43 @@ namespace Diploma
             }
         }
 
-        private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        private void Window_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == System.Windows.Input.Key.Escape)
+            if (e.Key == Key.Escape)
             {
-                // Deselect the chat    
                 ChatListBox.SelectedItem = null;
                 _selectedChat = null;
-
-                // Reset the right panel to the initial state
+                _messages.Clear();
                 ChatHeaderText.Text = "Select a chat";
                 OnlineStatusText.Visibility = Visibility.Collapsed;
-                MessagesListBox.ItemsSource = null;
                 MessageTextBox.Clear();
-                // Remove focus from the chat list and return it to the window
+
                 ChatListBox.Focusable = false;
                 ChatListBox.Focusable = true;
                 Keyboard.ClearFocus();
             }
         }
 
-
-        // ========== Load messages ==========
         private async void LoadMessages(Guid conversationId)
         {
-            // Capture the conversation we are loading for
             var targetConvId = conversationId;
 
             string contactPublicKey = _selectedChat?.PublicKey;
             if (contactPublicKey == null) return;
 
-            var messages = await _api.GetMessages(targetConvId);
+            // 1. Hide the chat while we load (no rapid scroll)
+            MessagesListBox.Opacity = 0;
 
-            // Run decryption on a background thread
-            var displayMessages = await Task.Run(() =>
+            _isLoadingMessages = true;
+            _pendingIncomingMessages.Clear();
+            _pendingOutgoingMessages.Clear();
+
+            var serverMessages = await _api.GetMessages(targetConvId);
+
+            var decryptedList = await Task.Run(() =>
             {
-                var list = new ObservableCollection<MessageDisplay>();
-                foreach (var msg in messages)
+                var list = new List<MessageDisplay>();
+                foreach (var msg in serverMessages)
                 {
                     string plainText;
                     try
@@ -233,42 +243,46 @@ namespace Diploma
                         Time = msg.Timestamp.ToLocalTime().ToString("t"),
                         StatusIcon = statusIcon,
                         MessageId = msg.MessageId,
-                        IsMine = msg.SenderId == _currentUserId   // <-- true for own messages
+                        IsMine = msg.SenderId == _currentUserId
                     });
                 }
                 return list;
             });
 
-            // ** Guard: only apply if the selected chat still matches **
-            // Apply results on the UI thread
             if (_selectedChat == null || _selectedChat.ConversationId != targetConvId)
+            {
+                _isLoadingMessages = false;
+                MessagesListBox.Opacity = 1;   // restore visibility if we abort
                 return;
-
-            // Reuse the same ObservableCollection if possible, to avoid full visual rebuild
-            var currentCollection = MessagesListBox.ItemsSource as ObservableCollection<MessageDisplay>;
-            if (currentCollection != null)
-            {
-                currentCollection.Clear();
-                foreach (var msg in displayMessages)
-                    currentCollection.Add(msg);
-            }
-            else
-            {
-                MessagesListBox.ItemsSource = displayMessages;
             }
 
-            // Scroll after layout is done (low priority)
-            Dispatcher.BeginInvoke(new Action(() => ScrollMessagesToBottom()),
-                                   System.Windows.Threading.DispatcherPriority.Background);
+            // 2. Clear and repopulate the persistent collection
+            _messages.Clear();
+            foreach (var msg in decryptedList)
+                _messages.Add(msg);
 
-            // Mark as read
-            if (messages.Any(m => m.SenderId != _currentUserId && m.Status != "Read"))
+            // Add any pending messages that arrived during loading
+            foreach (var msg in _pendingIncomingMessages)
+                _messages.Add(msg);
+            _pendingIncomingMessages.Clear();
+
+            foreach (var msg in _pendingOutgoingMessages)
+                _messages.Add(msg);
+            _pendingOutgoingMessages.Clear();
+
+            _isLoadingMessages = false;
+
+            // 3. Show the chat and scroll to the bottom
+            Dispatcher.BeginInvoke(new Action(ScrollMessagesToBottom),
+                                   System.Windows.Threading.DispatcherPriority.Loaded);
+
+            // 4. Now the user can see the messages – mark them as read
+            if (serverMessages.Any(m => m.SenderId != _currentUserId && m.Status != "Read"))
             {
-                await _api.MarkAsRead(targetConvId);
+                _ = Task.Run(() => _api.MarkAsRead(targetConvId));
             }
         }
 
-        // ========== Send message ==========
         private async void SendButton_Click(object sender, RoutedEventArgs e)
         {
             if (_selectedChat == null)
@@ -295,7 +309,6 @@ namespace Diploma
 
             Guid messageId = Guid.NewGuid();
 
-            // ---- 1. Show the message instantly ----
             var displayMsg = new MessageDisplay
             {
                 Text = text,
@@ -306,55 +319,54 @@ namespace Diploma
                 IsMine = true
             };
 
-            if (MessagesListBox.ItemsSource is ObservableCollection<MessageDisplay> messages)
+            // If the chat is still loading, hold the message in the pending outgoing buffer
+            if (_isLoadingMessages)
             {
-                messages.Add(displayMsg);
-                // REMOVED: MessagesListBox.Items.Refresh();  <-- ObservableCollection handles this
+                _pendingOutgoingMessages.Add(displayMsg);
+            }
+            else
+            {
+                _messages.Add(displayMsg);
+
+                // Scroll to bottom
+                Dispatcher.BeginInvoke(new Action(() => ScrollMessagesToBottom()),
+                                       System.Windows.Threading.DispatcherPriority.Background);
+
             }
 
-            // Scroll to the new message AFTER the layout has finished, on a low priority
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                MessagesListBox.ScrollIntoView(displayMsg);
-            }), System.Windows.Threading.DispatcherPriority.Background);
-
-            // Update the chat list preview (the rest is the same, but we keep Refresh for now)
+            // Update the chat list preview immediately (doesn't depend on _messages)
             _selectedChat.LastMessage = text.Length > 25 ? text.Substring(0, 25) + "..." : text;
             _selectedChat.LastMessageStatus = "Sent";
             _selectedChat.IsLastMessageFromMe = true;
             _selectedChat.LastMessageTimestamp = DateTime.Now;
-            ChatListBox.Items.Refresh();
+            MoveChatToTop(_selectedChat);
+            ChatListBox.ScrollIntoView(_selectedChat);
 
             MessageTextBox.Clear();
 
-            // ---- 2. Send to server in background (fire-and-forget) ----
+            // Fire-and-forget: actually send the message to the server
             _ = Task.Run(async () =>
             {
                 bool success = await _api.SendMessage(messageId, _selectedChat.ConversationId, ciphertext);
                 if (!success)
                 {
-                    // Mark the message as failed on the UI thread
                     Application.Current.Dispatcher.Invoke(() =>
                     {
                         displayMsg.StatusIcon = "⚠";
-                        MessagesListBox.Items.Refresh();
                     });
                 }
             });
         }
 
-        private void MessageTextBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        private void MessageTextBox_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == System.Windows.Input.Key.Enter)
+            if (e.Key == Key.Enter)
             {
-                // Prevent the "ding" sound or any default behavior
                 e.Handled = true;
-                // Trigger the send button click logic
                 SendButton_Click(sender, e);
             }
         }
 
-        // ========== Add friend ==========
         private async void AddFriendButton_Click(object sender, RoutedEventArgs e)
         {
             string username = FriendUsernameBox.Text.Trim();
@@ -369,24 +381,20 @@ namespace Diploma
                 MessageBox.Show("Failed to send request.");
         }
 
-        // ========== Accept/decline friend request ==========
         private async void AcceptRequest_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is Guid contactId)
             {
                 await _api.RespondToRequest(contactId, true);
 
-                // Immediately remove the request from the UI (no server reload needed)
-                var pendingList = FriendRequestsListBox.ItemsSource as List<FriendRequestItem>;
-                var item = pendingList?.FirstOrDefault(r => r.RequestId == contactId);
+                // Remove from the observable collection directly
+                var item = _friendRequests?.FirstOrDefault(r => r.RequestId == contactId);
                 if (item != null)
                 {
-                    pendingList.Remove(item);
-                    FriendRequestsListBox.Items.Refresh();
+                    _friendRequests.Remove(item);
                 }
 
                 // The WebSocket "contact_added" handler will reload the chat list and set online status.
-                // Do NOT call LoadContactsAsync() or LoadPendingRequestsAsync() here.
             }
         }
 
@@ -399,7 +407,6 @@ namespace Diploma
             }
         }
 
-        // ========== Settings ==========
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
             MessageBox.Show("Settings will be implemented later.");
@@ -422,17 +429,32 @@ namespace Diploma
 
         private void ApplyOnlineStatusFromCache()
         {
-            var list = ChatListBox.ItemsSource as List<ChatItem>;
-            if (list == null) return;
-            foreach (var item in list)
+            if (_chatItems == null) return;
+            foreach (var item in _chatItems)
             {
                 item.IsOnline = _onlineUserIds.Contains(item.ContactUserId);
             }
-            ChatListBox.Items.Refresh();
+            // No Refresh() – IsOnline property notifies automatically
+        }
+        private void ResortChats()
+        {
+            var sorted = _chatItems
+                .OrderByDescending(c => c.LastMessageTimestamp ?? DateTime.MinValue)
+                .ToList();
+
+            _chatItems.Clear();
+            foreach (var item in sorted)
+                _chatItems.Add(item);
+        }
+        private void MoveChatToTop(ChatItem chat)
+        {
+            var index = _chatItems.IndexOf(chat);
+            if (index <= 0) return;
+
+            _chatItems.Move(index, 0);
         }
         private async void OnWebSocketMessage(string message)
         {
-            // Parse simple JSON manually (you can use System.Text.Json if you prefer)
             var doc = System.Text.Json.JsonDocument.Parse(message);
             var type = doc.RootElement.GetProperty("type").GetString();
 
@@ -443,7 +465,7 @@ namespace Diploma
                     string encryptedContentB64 = doc.RootElement.GetProperty("encryptedContent").GetString();
                     Guid senderId = Guid.Parse(doc.RootElement.GetProperty("senderId").GetString());
 
-                    // Load messages if this conversation is open
+                    // If the conversation is currently open, decrypt and add to _messages
                     if (_selectedChat?.ConversationId == newConvId)
                     {
                         _ = Task.Run(() =>
@@ -451,96 +473,97 @@ namespace Diploma
                             try
                             {
                                 byte[] ciphertext = Convert.FromBase64String(encryptedContentB64);
-
                                 byte[] decrypted = ECCryptoService.DecryptData(
-                                    ciphertext,
-                                    _currentPrivateKey,
-                                    _selectedChat.PublicKey);
-
+                                    ciphertext, _currentPrivateKey, _selectedChat.PublicKey);
                                 string plainText = Encoding.UTF8.GetString(decrypted);
+
+                                // Safe timestamp parsing
+                                DateTime messageTime = DateTime.Now;
+                                if (doc.RootElement.TryGetProperty("timestamp", out var tsElement))
+                                    messageTime = DateTime.Parse(tsElement.GetString(), null,
+                                        System.Globalization.DateTimeStyles.RoundtripKind);
 
                                 var displayMsg = new MessageDisplay
                                 {
                                     Text = plainText,
                                     SenderName = _selectedChat.ContactName,
-                                    Time = DateTime.Parse(
-                                        doc.RootElement.GetProperty("timestamp").GetString())
-                                        .ToLocalTime()
-                                        .ToString("t"),
-
+                                    Time = messageTime.ToLocalTime().ToString("t"),
                                     StatusIcon = "",
-                                    MessageId = Guid.Parse(
-                                        doc.RootElement.GetProperty("messageId").GetString()),
-
+                                    MessageId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString()),
                                     IsMine = false
                                 };
 
                                 Application.Current.Dispatcher.BeginInvoke(() =>
                                 {
-                                    if (MessagesListBox.ItemsSource is ObservableCollection<MessageDisplay> list)
+                                    if (_isLoadingMessages)
                                     {
-                                        list.Add(displayMsg);
+                                        _pendingIncomingMessages.Add(displayMsg);
                                     }
+                                    else
+                                    {
+                                        _messages.Add(displayMsg);
+                                        // Scroll to the newly added message (safe)
+                                        // Scroll to bottom
+                                        Dispatcher.BeginInvoke(new Action(() => ScrollMessagesToBottom()),
+                                                               System.Windows.Threading.DispatcherPriority.Background);
+
+                                    }
+
+                                    // Mark as read
+                                    _ = _api.MarkAsRead(newConvId);
                                 });
-                                Dispatcher.BeginInvoke(new Action(() =>
-                                {
-                                    MessagesListBox.ScrollIntoView(displayMsg);
-                                }), System.Windows.Threading.DispatcherPriority.Background);
                             }
-                            catch
-                            {
-                            }
+                            catch { }
                         });
                     }
 
-                    // Update last message preview
-                    var chatList = ChatListBox.ItemsSource as List<ChatItem>;
-                    var targetChat = chatList?.FirstOrDefault(c => c.ConversationId == newConvId);
+                    // Update last message preview in sidebar (unchanged)
+                    var targetChat = _chatItems?.FirstOrDefault(c => c.ConversationId == newConvId);
                     if (targetChat != null)
                     {
-                        // Update preview text
                         try
                         {
                             byte[] ciphertext = Convert.FromBase64String(encryptedContentB64);
                             byte[] decrypted = ECCryptoService.DecryptData(ciphertext, _currentPrivateKey, targetChat.PublicKey);
-                            string fullText = System.Text.Encoding.UTF8.GetString(decrypted);
+                            string fullText = Encoding.UTF8.GetString(decrypted);
                             targetChat.LastMessage = fullText.Length > 25 ? fullText.Substring(0, 25) + "..." : fullText;
                         }
                         catch { targetChat.LastMessage = "[encrypted]"; }
 
-                        // The new message is from the other user, so clear any sender‑side marks
                         targetChat.IsLastMessageFromMe = false;
-                        targetChat.LastMessageStatus = "";   // no check marks for the receiver
-                                                             // Update timestamp from the server notification
+                        targetChat.LastMessageStatus = "";
+
                         if (doc.RootElement.TryGetProperty("timestamp", out var tsElement))
                         {
-                            targetChat.LastMessageTimestamp = DateTime.Parse(tsElement.GetString(), null, System.Globalization.DateTimeStyles.RoundtripKind);
+                            targetChat.LastMessageTimestamp = DateTime.Parse(tsElement.GetString(), null,
+                                System.Globalization.DateTimeStyles.RoundtripKind);
                         }
-                        // Increment unread count if this conversation is NOT currently selected
+
                         if (_selectedChat?.ConversationId != newConvId)
-                        {
                             targetChat.UnreadCount++;
-                            // Do not set LastMessageStatus here; the status is already cleared above
-                        }
-                        ChatListBox.Items.Refresh();
                     }
                     break;
 
                 case "friend_request":
-                    _ = LoadPendingRequestsAsync();
+                    var reqId = Guid.Parse(doc.RootElement.GetProperty("requestId").GetString());
+                    var fromUsername = doc.RootElement.GetProperty("fromUsername").GetString();
+
+                    _friendRequests?.Add(new FriendRequestItem
+                    {
+                        RequestId = reqId,
+                        FromUsername = fromUsername
+                    });
                     break;
 
                 case "contact_added":
                     var addedContactUserId = Guid.Parse(doc.RootElement.GetProperty("contactUserId").GetString());
                     bool addedIsOnline = doc.RootElement.GetProperty("isOnline").GetBoolean();
 
-                    // Update the online cache immediately
                     if (addedIsOnline)
                         _onlineUserIds.Add(addedContactUserId);
                     else
                         _onlineUserIds.Remove(addedContactUserId);
 
-                    // Reload contacts, then apply all cached online statuses
                     _ = LoadContactsAsync().ContinueWith(_ =>
                     {
                         Application.Current.Dispatcher.Invoke(() =>
@@ -551,6 +574,7 @@ namespace Diploma
 
                     _ = LoadPendingRequestsAsync();
                     break;
+
                 case "message_status":
                     {
                         var msgId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString());
@@ -559,57 +583,51 @@ namespace Diploma
 
                         await Application.Current.Dispatcher.InvokeAsync(() =>
                         {
-                            if (_selectedChat?.ConversationId == statusConvId)
+                            // Update the message in the open chat (if this conversation is open)
+                            var msg = _messages.FirstOrDefault(m => m.MessageId == msgId);
+                            if (msg != null)
                             {
-                                if (MessagesListBox.ItemsSource is ObservableCollection<MessageDisplay> list)
+                                msg.StatusIcon = newStatus switch
                                 {
-                                    var msg = list.FirstOrDefault(m => m.MessageId == msgId);
-                                    if (msg != null)
-                                    {
-                                        msg.StatusIcon = "✓✓";
-                                    }
-                                }
+                                    "Sent" => "✓",
+                                    "Read" => "✓✓",
+                                    _ => msg.StatusIcon
+                                };
                             }
 
-                            if (ChatListBox.ItemsSource is IEnumerable<ChatItem> chats)
+                            // Update sidebar last message status
+                            var chat = _chatItems.FirstOrDefault(c => c.ConversationId == statusConvId);
+                            if (chat != null && chat.IsLastMessageFromMe)
                             {
-                                var chatItem = chats.FirstOrDefault(c => c.ConversationId == statusConvId);
-                                if (chatItem != null && chatItem.IsLastMessageFromMe)
-                                {
-                                    chatItem.LastMessageStatus = newStatus;
-                                }
+                                chat.LastMessageStatus = newStatus;
                             }
                         });
 
                         break;
                     }
+
                 case "presence":
                     var presUserId = Guid.Parse(doc.RootElement.GetProperty("userId").GetString());
                     var isOnline = doc.RootElement.GetProperty("isOnline").GetBoolean();
 
-                    // Keep the cache updated
                     if (isOnline)
                         _onlineUserIds.Add(presUserId);
                     else
                         _onlineUserIds.Remove(presUserId);
 
-                    // Update the chat list item (if exists)
-                    var presenceChatList = ChatListBox.ItemsSource as List<ChatItem>;
-                    var chat = presenceChatList?.FirstOrDefault(c => c.ContactUserId == presUserId);
+                    var chat = _chatItems?.FirstOrDefault(c => c.ContactUserId == presUserId);
                     if (chat != null)
                     {
                         chat.IsOnline = isOnline;
-                        ChatListBox.Items.Refresh();
                     }
 
-                    // Update header if this is the selected chat
                     if (_selectedChat?.ContactUserId == presUserId)
                     {
                         OnlineStatusText.Text = isOnline ? "Online" : "Offline";
                         OnlineStatusText.Foreground = isOnline
-                            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.LimeGreen)
-                            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gray);
-                        OnlineStatusText.Visibility = System.Windows.Visibility.Visible;
+                            ? new SolidColorBrush(Colors.LimeGreen)
+                            : new SolidColorBrush(Colors.Gray);
+                        OnlineStatusText.Visibility = Visibility.Visible;
                     }
                     break;
             }
@@ -617,17 +635,59 @@ namespace Diploma
     }
 
     // ---------- Display helper classes ----------
-    public class ChatItem
+    public class ChatItem : INotifyPropertyChanged
     {
+        private string _lastMessage;
+        private string _lastMessageStatus;
+        private int _unreadCount;
+        private bool _isOnline;
+
         public string ContactName { get; set; }
         public string Username { get; set; }
-        public string LastMessage { get; set; }
         public Guid ContactUserId { get; set; }
         public string PublicKey { get; set; }
         public Guid ConversationId { get; set; }
-        public bool IsOnline { get; set; }
-        public string LastMessageStatus { get; set; }
         public bool IsLastMessageFromMe { get; set; }
+        private DateTime? _lastMessageTimestamp;
+        public DateTime? LastMessageTimestamp
+        {
+            get => _lastMessageTimestamp;
+            set
+            {
+                if (_lastMessageTimestamp != value)
+                {
+                    _lastMessageTimestamp = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(LastMessageTimeText));
+                }
+            }
+        }
+
+        public bool IsOnline
+        {
+            get => _isOnline;
+            set { _isOnline = value; OnPropertyChanged(); }
+        }
+
+        public string LastMessage
+        {
+            get => _lastMessage;
+            set { _lastMessage = value; OnPropertyChanged(); }
+        }
+
+        public string LastMessageStatus
+        {
+            get => _lastMessageStatus;
+            set { _lastMessageStatus = value; OnPropertyChanged(); OnPropertyChanged(nameof(LastMessageStatusIcon)); }
+        }
+
+        public int UnreadCount
+        {
+            get => _unreadCount;
+            set { _unreadCount = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasUnread)); }
+        }
+
+        public bool HasUnread => UnreadCount > 0;
 
         public string LastMessageStatusIcon => IsLastMessageFromMe
             ? LastMessageStatus switch
@@ -637,9 +697,6 @@ namespace Diploma
                 _ => ""
             }
             : "";
-        public int UnreadCount { get; set; }
-        public bool HasUnread => UnreadCount > 0;
-        public DateTime? LastMessageTimestamp { get; set; }
 
         public string LastMessageTimeText
         {
@@ -650,18 +707,21 @@ namespace Diploma
                 var now = DateTime.Now;
 
                 if (dt.Date == now.Date)
-                    return dt.ToString("t");                     // 14:35
+                    return dt.ToString("t");
 
                 if (dt.Date > now.Date.AddDays(-7))
-                    return dt.ToString("dddd");                  // Monday
+                    return dt.ToString("dddd");
 
-                // More than a week: show day + month if same year, else full date
                 if (dt.Year == now.Year)
-                    return dt.ToString("d MMMM");                // 6 May
+                    return dt.ToString("d MMMM");
                 else
-                    return dt.ToString("M/d/yyyy");              // 5/30/2026
+                    return dt.ToString("M/d/yyyy");
             }
         }
+
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
     public class FriendRequestItem
@@ -673,34 +733,27 @@ namespace Diploma
     public class MessageDisplay : INotifyPropertyChanged
     {
         public Guid MessageId { get; set; }
-
         public string Text { get; set; }
-
         public string SenderName { get; set; }
-
         public string Time { get; set; }
-
         public bool IsMine { get; set; }
 
-        private string statusIcon;
+        private string _statusIcon;
         public string StatusIcon
         {
-            get => statusIcon;
+            get => _statusIcon;
             set
             {
-                if (statusIcon != value)
+                if (_statusIcon != value)
                 {
-                    statusIcon = value;
+                    _statusIcon = value;
                     OnPropertyChanged();
                 }
             }
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
-
-        protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
-        {
+        protected void OnPropertyChanged([CallerMemberName] string propertyName = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        }
     }
 }

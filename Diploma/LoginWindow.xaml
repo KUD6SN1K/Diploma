@@ -4,7 +4,8 @@
         xmlns:ui="http://schemas.modernwpf.com/2019"
         ui:WindowHelper.UseModernWindowStyle="True"
         Title="Login" Height="420" Width="400" ResizeMode="NoResize"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        KeyDown="Window_KeyDown">
     <Window.Resources>
         <Style TargetType="TextBox">
             <Setter Property="FontSize" Value="16"/>
@@ -19,10 +20,12 @@
             <TextBlock Text="Sign in" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,20"/>
 
             <TextBlock Text="Username" Margin="0,5,0,0"/>
-            <TextBox x:Name="UsernameBox" Margin="0,2,0,10" Height="40"/>
+            <TextBox x:Name="UsernameBox" Margin="0,2,0,10" Height="40"
+                     KeyDown="UsernameBox_KeyDown"/>
 
             <TextBlock Text="Password" Margin="0,5,0,0"/>
-            <PasswordBox x:Name="PasswordBox" Margin="0,2,0,10" Height="40"/>
+            <PasswordBox x:Name="PasswordBox" Margin="0,2,0,10" Height="40"
+                         KeyDown="PasswordTextBox_KeyDown"/>
 
             <Button Content="Login" Click="LoginButton_Click"
                     Margin="0,15,0,5" Height="35"

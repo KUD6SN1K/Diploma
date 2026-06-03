@@ -28,20 +28,38 @@ namespace Diploma.Services
 
             _ = Task.Run(async () =>
             {
-                var buffer = new byte[4096];
+                var buffer = new byte[8192];
+                var sb = new StringBuilder();
+
                 try
                 {
                     while (_socket.State == WebSocketState.Open)
                     {
-                        var result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
-                        if (result.MessageType == WebSocketMessageType.Close)
-                            break;
+                        WebSocketReceiveResult result;
 
-                        var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                        Application.Current.Dispatcher.Invoke(() => _onMessage(message));
+                        do
+                        {
+                            result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
+
+                            if (result.MessageType == WebSocketMessageType.Close)
+                                return;
+
+                            sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+
+                        } while (!result.EndOfMessage);
+
+                        var message = sb.ToString();
+                        sb.Clear();
+
+                        Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            _onMessage(message);
+                        }));
                     }
                 }
-                catch { }
+                catch
+                {
+                }
             });
         }
 

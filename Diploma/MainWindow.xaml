@@ -6,7 +6,7 @@
         Title="Diploma Messenger" Height="650" Width="950"
         MinHeight="450" MinWidth="800"
         WindowStartupLocation="CenterScreen"
-        KeyDown="Window_KeyDown">
+        PreviewKeyDown="Window_KeyDown">
 
     <Grid>
         <Grid.ColumnDefinitions>
@@ -40,7 +40,8 @@
                 <StackPanel Grid.Row="0" Margin="0,0,0,10">
                     <TextBlock Text="Add friend" FontWeight="SemiBold" Margin="0,0,0,5"/>
                     <TextBox x:Name="FriendUsernameBox" Height="30" FontSize="14"
-                     ui:ControlHelper.PlaceholderText="Username"/>
+                     ui:ControlHelper.PlaceholderText="Username"
+                     KeyDown="FriendUsernameBox_KeyDown"/>
                     <Button x:Name="AddFriendButton" Content="Send request" Margin="0,5,0,0"
                     Height="30" Click="AddFriendButton_Click"
                     Style="{StaticResource AccentButtonStyle}"/>
@@ -52,7 +53,10 @@
          BorderThickness="0" Background="Transparent"
          HorizontalContentAlignment="Stretch"
          ScrollViewer.CanContentScroll="True"
-         VirtualizingPanel.ScrollUnit="Pixel">
+         VirtualizingPanel.ScrollUnit="Pixel"
+         KeyboardNavigation.TabNavigation="None"
+         KeyboardNavigation.DirectionalNavigation="None"
+         KeyboardNavigation.ControlTabNavigation="None">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Grid Margin="0,2">
@@ -97,7 +101,13 @@
          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
          ScrollViewer.VerticalScrollBarVisibility="Auto"
          ScrollViewer.CanContentScroll="True"
-         VirtualizingPanel.ScrollUnit="Pixel">
+         VirtualizingPanel.ScrollUnit="Pixel"
+         KeyboardNavigation.TabNavigation="None"
+         KeyboardNavigation.DirectionalNavigation="None"
+         KeyboardNavigation.ControlTabNavigation="None"
+         PreviewKeyDown="ChatListBox_PreviewKeyDown"
+         PreviewMouseLeftButtonDown="ChatListBox_PreviewMouseLeftButtonDown"
+         PreviewMouseLeftButtonUp="ChatListBox_PreviewMouseLeftButtonUp">
                     <ListBox.Resources>
                         <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
                     </ListBox.Resources>
@@ -246,8 +256,9 @@
          VirtualizingStackPanel.IsVirtualizing="True"
          VirtualizingPanel.ScrollUnit="Pixel"
          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-         ScrollViewer.VerticalScrollBarVisibility="Auto">
-
+         ScrollViewer.VerticalScrollBarVisibility="Auto"
+         KeyboardNavigation.TabNavigation="None"
+         KeyboardNavigation.ControlTabNavigation="None">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -342,7 +353,8 @@
                          VerticalAlignment="Center"
                          AcceptsReturn="False"
                          FontSize="14" Height="32"
-                         KeyDown="MessageTextBox_KeyDown"/>
+                         KeyDown="MessageTextBox_KeyDown"
+                         TextChanged="MessageTextBox_TextChanged"/>
                 <Button x:Name="SendButton"
                         Grid.Column="1" 
                         Content="Send" 

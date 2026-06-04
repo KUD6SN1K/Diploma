@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 
@@ -36,6 +37,12 @@ namespace Diploma
         private bool _isLoadingMessages = false;
         private List<MessageDisplay> _pendingIncomingMessages = new List<MessageDisplay>();
         private readonly List<MessageDisplay> _pendingOutgoingMessages = new List<MessageDisplay>();
+        private readonly List<Guid> _pendingReadReceipts = new List<Guid>();
+        private bool _isClickPending = false;
+        private object _clickedItem = null;
+        private Point _clickPoint;
+        private CancellationTokenSource _loadCts = new();
+        private const int MaxMessageLength = 10000;
         public MainWindow(Guid userId, string username, string displayName,
                           string privateKey, string publicKey, Mutex userMutex)
         {
@@ -138,7 +145,10 @@ namespace Diploma
         {
             if (ChatListBox.SelectedItem is not ChatItem selected)
                 return;
-
+            // Cancel any previous LoadMessages that might still be running
+            _loadCts.Cancel();
+            _loadCts = new CancellationTokenSource();
+            var currentToken = _loadCts.Token;
             _selectedChat = selected;
             _messages.Clear();
             if (selected.IsOnline)
@@ -161,10 +171,8 @@ namespace Diploma
             if (conv != null)
             {
                 selected.ConversationId = conv.ConversationId;
-                // Clear any pending messages from a previous load
-                _pendingIncomingMessages.Clear();
-                _isLoadingMessages = true;
-                LoadMessages(selected.ConversationId);
+                LoadMessages(selected.ConversationId, currentToken);
+                MessageTextBox.Focus();
             }
             else
             {
@@ -173,11 +181,29 @@ namespace Diploma
                 MessagesListBox.ItemsSource = null;
             }
         }
+        private void MessageTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (MessageTextBox.Text.Length > MaxMessageLength)
+            {
+                MessageTextBox.BorderBrush = new SolidColorBrush(Colors.Red);
+                MessageTextBox.BorderThickness = new Thickness(1);
+                MessageTextBox.ToolTip = $"Message is too long. Maximum is {MaxMessageLength} characters.";
+            }
+            else
+            {
+                // Restore normal style
+                MessageTextBox.ClearValue(TextBox.BorderBrushProperty);
+                MessageTextBox.ClearValue(TextBox.BorderThicknessProperty);
+                MessageTextBox.ClearValue(TextBox.ToolTipProperty);
+            }
+        }
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Escape)
             {
+                _loadCts.Cancel();
+                _loadCts = new CancellationTokenSource();
                 ChatListBox.SelectedItem = null;
                 _selectedChat = null;
                 _messages.Clear();
@@ -191,7 +217,7 @@ namespace Diploma
             }
         }
 
-        private async void LoadMessages(Guid conversationId)
+        private async void LoadMessages(Guid conversationId, CancellationToken cancellationToken)
         {
             var targetConvId = conversationId;
 
@@ -206,12 +232,16 @@ namespace Diploma
             _pendingOutgoingMessages.Clear();
 
             var serverMessages = await _api.GetMessages(targetConvId);
+            if (cancellationToken.IsCancellationRequested) return;
 
             var decryptedList = await Task.Run(() =>
             {
                 var list = new List<MessageDisplay>();
                 foreach (var msg in serverMessages)
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                        break;
+
                     string plainText;
                     try
                     {
@@ -247,16 +277,18 @@ namespace Diploma
                     });
                 }
                 return list;
-            });
+            }, cancellationToken);
 
+            if (cancellationToken.IsCancellationRequested) return;
+
+            // Guard: only apply if chat hasn't changed
             if (_selectedChat == null || _selectedChat.ConversationId != targetConvId)
             {
                 _isLoadingMessages = false;
-                MessagesListBox.Opacity = 1;   // restore visibility if we abort
                 return;
             }
 
-            // 2. Clear and repopulate the persistent collection
+            // 2. Clear and repopulate the persistent collection (now safe)
             _messages.Clear();
             foreach (var msg in decryptedList)
                 _messages.Add(msg);
@@ -270,13 +302,24 @@ namespace Diploma
                 _messages.Add(msg);
             _pendingOutgoingMessages.Clear();
 
+            // Flush deferred read receipts
+            if (_pendingReadReceipts.Count > 0)
+            {
+                var uniqueConvIds = _pendingReadReceipts.Distinct().ToList();
+                _pendingReadReceipts.Clear();
+                foreach (var convId in uniqueConvIds)
+                {
+                    _ = Task.Run(() => _api.MarkAsRead(convId));
+                }
+            }
+
             _isLoadingMessages = false;
 
             // 3. Show the chat and scroll to the bottom
             Dispatcher.BeginInvoke(new Action(ScrollMessagesToBottom),
                                    System.Windows.Threading.DispatcherPriority.Loaded);
 
-            // 4. Now the user can see the messages – mark them as read
+            // 4. Mark messages from the other user as read
             if (serverMessages.Any(m => m.SenderId != _currentUserId && m.Status != "Read"))
             {
                 _ = Task.Run(() => _api.MarkAsRead(targetConvId));
@@ -292,6 +335,14 @@ namespace Diploma
             }
 
             string text = MessageTextBox.Text.Trim();
+            if (text.Length > MaxMessageLength)
+            {
+                // Show error on the text box
+                MessageTextBox.BorderBrush = new SolidColorBrush(Colors.Red);
+                MessageTextBox.BorderThickness = new Thickness(1);
+                MessageTextBox.ToolTip = $"Message is too long. Maximum is {MaxMessageLength} characters.";
+                return;
+            }
             if (string.IsNullOrEmpty(text)) return;
 
             if (_selectedChat.ConversationId == Guid.Empty)
@@ -380,6 +431,21 @@ namespace Diploma
             else
                 MessageBox.Show("Failed to send request.");
         }
+        private void FriendUsernameBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                AddFriendButton_Click(sender, e);
+            }
+        }
+        private void ChatListBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Up || e.Key == Key.Down)
+            {
+                e.Handled = true;   // block arrow keys from changing selection
+            }
+        }
 
         private async void AcceptRequest_Click(object sender, RoutedEventArgs e)
         {
@@ -453,6 +519,60 @@ namespace Diploma
 
             _chatItems.Move(index, 0);
         }
+        private void ChatListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // Hit‑test where the user clicked
+            var hit = VisualTreeHelper.HitTest(ChatListBox, e.GetPosition(ChatListBox));
+            var hitElement = hit?.VisualHit as DependencyObject;
+
+            // Check if the click is on the scrollbar – if so, let the event pass through
+            if (FindVisualParent<ScrollBar>(hitElement) != null)
+            {
+                _isClickPending = false;
+                _clickedItem = null;
+                return;    // do NOT mark e.Handled, scrollbar works normally
+            }
+
+            // Find the clicked chat item (if any)
+            var item = FindVisualParent<ListBoxItem>(hitElement)?.DataContext;
+
+            if (item is ChatItem)
+            {
+                _clickedItem = item;
+                _clickPoint = e.GetPosition(null);
+                _isClickPending = true;
+                e.Handled = true;   // block only when we’re going to handle the click ourselves
+            }
+            else
+            {
+                // Clicked empty space – ignore, but don’t block the event
+                _isClickPending = false;
+                _clickedItem = null;
+            }
+        }
+
+        private void ChatListBox_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isClickPending || _clickedItem == null) return;
+
+            // Make sure the mouse is still over the same chat item
+            var hit = VisualTreeHelper.HitTest(ChatListBox, e.GetPosition(ChatListBox));
+            var item = FindVisualParent<ListBoxItem>(hit?.VisualHit as DependencyObject)?.DataContext;
+
+            if (item == _clickedItem)
+            {
+                ChatListBox.SelectedItem = _clickedItem;
+            }
+
+            _isClickPending = false;
+            _clickedItem = null;
+        }
+        private static T FindVisualParent<T>(DependencyObject child) where T : DependencyObject
+        {
+            while (child != null && !(child is T))
+                child = VisualTreeHelper.GetParent(child);
+            return child as T;
+        }
         private async void OnWebSocketMessage(string message)
         {
             var doc = System.Text.Json.JsonDocument.Parse(message);
@@ -477,7 +597,6 @@ namespace Diploma
                                     ciphertext, _currentPrivateKey, _selectedChat.PublicKey);
                                 string plainText = Encoding.UTF8.GetString(decrypted);
 
-                                // Safe timestamp parsing
                                 DateTime messageTime = DateTime.Now;
                                 if (doc.RootElement.TryGetProperty("timestamp", out var tsElement))
                                     messageTime = DateTime.Parse(tsElement.GetString(), null,
@@ -497,20 +616,18 @@ namespace Diploma
                                 {
                                     if (_isLoadingMessages)
                                     {
+                                        // Hold the message; mark read after loading finishes
                                         _pendingIncomingMessages.Add(displayMsg);
+                                        _pendingReadReceipts.Add(newConvId);
                                     }
                                     else
                                     {
                                         _messages.Add(displayMsg);
-                                        // Scroll to the newly added message (safe)
-                                        // Scroll to bottom
-                                        Dispatcher.BeginInvoke(new Action(() => ScrollMessagesToBottom()),
-                                                               System.Windows.Threading.DispatcherPriority.Background);
-
+                                        Dispatcher.BeginInvoke(new Action(ScrollMessagesToBottom),
+                                            System.Windows.Threading.DispatcherPriority.Background);
+                                        // Mark as read immediately – chat is already open and visible
+                                        _ = _api.MarkAsRead(newConvId);
                                     }
-
-                                    // Mark as read
-                                    _ = _api.MarkAsRead(newConvId);
                                 });
                             }
                             catch { }

@@ -13,6 +13,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace Diploma
 {
@@ -48,6 +49,8 @@ namespace Diploma
         private bool _loadingOlderMessages = false;
         private DateTime? _oldestMessageTimestamp;     // timestamp of the oldest loaded message
         private const int PageSize = 50;
+        private bool _suppressScrollEvents = false;
+        private DispatcherTimer _scrollSuppressTimer;
         public MainWindow(Guid userId, string username, string displayName,
                           string privateKey, string publicKey, Mutex userMutex)
         {
@@ -162,12 +165,32 @@ namespace Diploma
 
         private void ScrollMessagesToBottom()
         {
-            if (VisualTreeHelper.GetChildrenCount(MessagesListBox) > 0)
+            AttachScrollViewer();
+            if (_messagesScrollViewer != null)
             {
-                AttachScrollViewer();
-                var border = VisualTreeHelper.GetChild(MessagesListBox, 0) as Decorator;
-                var scrollViewer = border?.Child as ScrollViewer;
-                scrollViewer?.ScrollToEnd();
+                _suppressScrollEvents = true;
+
+                // Create / reset a timer that will re-enable scroll events after 300 ms
+                if (_scrollSuppressTimer == null)
+                {
+                    _scrollSuppressTimer = new DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromMilliseconds(300)
+                    };
+                    _scrollSuppressTimer.Tick += (s, e) =>
+                    {
+                        _suppressScrollEvents = false;
+                        _scrollSuppressTimer.Stop();
+                    };
+                }
+                else
+                {
+                    _scrollSuppressTimer.Stop();
+                }
+                _scrollSuppressTimer.Start();
+
+                _messagesScrollViewer.ScrollToEnd();
+                MessagesListBox.Opacity = 1;
             }
         }
 
@@ -258,17 +281,18 @@ namespace Diploma
             _pendingIncomingMessages.Clear();
             _pendingOutgoingMessages.Clear();
             _pendingReadReceipts.Clear();
-
-            // Load only the latest 50 messages
+            MessagesListBox.Opacity= 0;
             var serverMessages = await _api.GetMessages(targetConvId, PageSize, null);
 
-            // Cancel if the user switched chat during the API call
-            if (cancellationToken.IsCancellationRequested) return;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                _isLoadingMessages = false;
+                MessagesListBox.Opacity = 1;
+                return;
+            }
 
-            // Determine whether more older messages exist
             _hasMoreMessages = (serverMessages.Count == PageSize);
 
-            // Decrypt on background thread, checking cancellation periodically
             var decryptedList = await Task.Run(() =>
             {
                 var list = new List<MessageDisplay>();
@@ -285,10 +309,7 @@ namespace Diploma
                             ciphertext, _currentPrivateKey, contactPublicKey);
                         plainText = Encoding.UTF8.GetString(decrypted);
                     }
-                    catch
-                    {
-                        plainText = "[decryption failed]";
-                    }
+                    catch { plainText = "[decryption failed]"; }
 
                     string statusIcon = "";
                     if (msg.SenderId == _currentUserId)
@@ -315,29 +336,23 @@ namespace Diploma
                 return list;
             }, cancellationToken);
 
-            // Check cancellation before touching the UI
-            if (cancellationToken.IsCancellationRequested)
+            // Double‑check we are still on the same chat and not cancelled
+            if (cancellationToken.IsCancellationRequested ||
+                _selectedChat == null ||
+                _selectedChat.ConversationId != targetConvId)
             {
                 _isLoadingMessages = false;
+                MessagesListBox.Opacity = 1;
                 return;
             }
 
-            // Guard: only apply if the chat hasn't changed in the meantime
-            if (_selectedChat == null || _selectedChat.ConversationId != targetConvId)
-            {
-                _isLoadingMessages = false;
-                return;
-            }
-
-            // Remember the oldest timestamp for future pagination
             _oldestMessageTimestamp = serverMessages.FirstOrDefault()?.Timestamp;
 
-            // Clear and refill the persistent collection
+            // Safely replace the collection
             _messages.Clear();
             foreach (var msg in decryptedList)
                 _messages.Add(msg);
 
-            // Add pending messages that arrived during loading
             foreach (var msg in _pendingIncomingMessages)
                 _messages.Add(msg);
             _pendingIncomingMessages.Clear();
@@ -346,7 +361,6 @@ namespace Diploma
                 _messages.Add(msg);
             _pendingOutgoingMessages.Clear();
 
-            // Flush deferred read receipts
             if (_pendingReadReceipts.Count > 0)
             {
                 var uniqueConvIds = _pendingReadReceipts.Distinct().ToList();
@@ -357,24 +371,28 @@ namespace Diploma
 
             _isLoadingMessages = false;
 
-
-            // Scroll to bottom after the UI has been updated
             Dispatcher.BeginInvoke(new Action(ScrollMessagesToBottom),
                                    System.Windows.Threading.DispatcherPriority.Loaded);
 
-            // Mark messages from the other user as read
             if (serverMessages.Any(m => m.SenderId != _currentUserId && m.Status != "Read"))
-            {
                 _ = Task.Run(() => _api.MarkAsRead(targetConvId));
-            }
         }
         private async void MessagesScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            if (_loadingOlderMessages || !_hasMoreMessages) return;
-            if (_messagesScrollViewer.VerticalOffset <= 10)   // near top
-            {
+            // 1. Ignore events that were caused programmatically (ScrollToEnd, etc.)
+            if (_suppressScrollEvents)
+                return;
+
+            // 2. Ignore layout-only events (resize, minimise, maximise)
+            if (e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
+                return;
+
+            // 3. Normal guard conditions
+            if (_loadingOlderMessages || !_hasMoreMessages)
+                return;
+
+            if (_messagesScrollViewer.VerticalOffset <= 10)
                 await LoadOlderMessages();
-            }
         }
         private async void SendButton_Click(object sender, RoutedEventArgs e)
         {

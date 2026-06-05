@@ -57,10 +57,10 @@ namespace MessengerServer.Controllers
         // Get messages for a conversation
         [HttpGet]
         public async Task<IActionResult> GetMessages(
-    [FromQuery] Guid conversationId,
-    [FromQuery] Guid userId,
-    [FromQuery] int count = 50,
-    [FromQuery] DateTime? before = null)
+        [FromQuery] Guid conversationId,
+        [FromQuery] Guid userId,
+        [FromQuery] int count = 50,
+        [FromQuery] DateTime? before = null)
         {
             IQueryable<Message> query = _db.Messages
                 .Where(m => m.ConversationId == conversationId);

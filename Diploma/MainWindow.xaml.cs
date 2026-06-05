@@ -34,7 +34,7 @@ namespace Diploma
         // Observable collections for automatic UI updates without Refresh()
         private ObservableCollection<ChatItem> _chatItems;
         private ObservableCollection<FriendRequestItem> _friendRequests;
-        private ObservableCollection<MessageDisplay> _messages = new ObservableCollection<MessageDisplay>();
+        private ObservableCollection<object> _messages = new ObservableCollection<object>();
         private bool _isLoadingMessages = false;
         private List<MessageDisplay> _pendingIncomingMessages = new List<MessageDisplay>();
         private readonly List<MessageDisplay> _pendingOutgoingMessages = new List<MessageDisplay>();
@@ -281,7 +281,8 @@ namespace Diploma
             _pendingIncomingMessages.Clear();
             _pendingOutgoingMessages.Clear();
             _pendingReadReceipts.Clear();
-            MessagesListBox.Opacity= 0;
+            MessagesListBox.Opacity = 0;
+
             var serverMessages = await _api.GetMessages(targetConvId, PageSize, null);
 
             if (cancellationToken.IsCancellationRequested)
@@ -348,18 +349,21 @@ namespace Diploma
 
             _oldestMessageTimestamp = serverMessages.FirstOrDefault()?.Timestamp;
 
-            // Safely replace the collection
-            _messages.Clear();
-            foreach (var msg in decryptedList)
-                _messages.Add(msg);
+            // Build final list with date separators for the loaded messages
+            var finalList = InsertDateSeparators(decryptedList);
 
+            // Add pending messages with date separators
             foreach (var msg in _pendingIncomingMessages)
-                _messages.Add(msg);
+                AddMessageWithDateSeparator(msg, finalList);
             _pendingIncomingMessages.Clear();
 
             foreach (var msg in _pendingOutgoingMessages)
-                _messages.Add(msg);
+                AddMessageWithDateSeparator(msg, finalList);
             _pendingOutgoingMessages.Clear();
+
+            // Replace the collection
+            _messages = new ObservableCollection<object>(finalList);
+            MessagesListBox.ItemsSource = _messages;
 
             if (_pendingReadReceipts.Count > 0)
             {
@@ -435,7 +439,8 @@ namespace Diploma
                 Time = DateTime.Now.ToString("t"),
                 StatusIcon = "✓",
                 MessageId = messageId,
-                IsMine = true
+                IsMine = true,
+                Timestamp = DateTime.Now
             };
 
             // If the chat is still loading, hold the message in the pending outgoing buffer
@@ -445,7 +450,7 @@ namespace Diploma
             }
             else
             {
-                _messages.Add(displayMsg);
+                AddMessageWithDateSeparator(displayMsg);
 
                 // Scroll to bottom
                 Dispatcher.BeginInvoke(new Action(() => ScrollMessagesToBottom()),
@@ -486,16 +491,13 @@ namespace Diploma
 
             _loadingOlderMessages = true;
 
-            // Record the current extent height before inserting new items
             double previousExtentHeight = _messagesScrollViewer?.ExtentHeight ?? 0;
 
-            // Fetch older messages (before the oldest we currently have)
             var olderMessages = await _api.GetMessages(
                 _selectedChat.ConversationId,
                 PageSize,
                 _oldestMessageTimestamp.Value);
 
-            // If fewer than PageSize returned, there are no more messages
             if (olderMessages.Count < PageSize)
                 _hasMoreMessages = false;
 
@@ -505,7 +507,6 @@ namespace Diploma
                 return;
             }
 
-            // Update the oldest timestamp (the first message in this batch is the oldest)
             _oldestMessageTimestamp = olderMessages.First().Timestamp;
 
             string contactPublicKey = _selectedChat.PublicKey;
@@ -524,10 +525,7 @@ namespace Diploma
                             ciphertext, _currentPrivateKey, contactPublicKey);
                         plainText = Encoding.UTF8.GetString(decrypted);
                     }
-                    catch
-                    {
-                        plainText = "[decryption failed]";
-                    }
+                    catch { plainText = "[decryption failed]"; }
 
                     string statusIcon = "";
                     if (msg.SenderId == _currentUserId)
@@ -554,11 +552,38 @@ namespace Diploma
                 return list;
             });
 
-            // Insert older messages at the beginning (oldest first)
-            for (int i = decryptedOlder.Count - 1; i >= 0; i--)
-                _messages.Insert(0, decryptedOlder[i]);
+            // ----- Smart insertion with correct date separators -----
+            // 1. Find the date of the currently oldest MESSAGE (skip leading separators)
+            DateTime? lastDate = null;
+            for (int i = 0; i < _messages.Count; i++)
+            {
+                if (_messages[i] is MessageDisplay firstMsg)
+                {
+                    lastDate = firstMsg.Timestamp.Date;
+                    break;
+                }
+            }
 
-            // Wait for layout to update, then restore the scroll position
+            // 2. Build the list of older items (messages + separators) using the existing lastDate
+            var toInsert = new List<object>();
+            foreach (var msg in decryptedOlder)
+            {
+                if (lastDate == null || msg.Timestamp.Date != lastDate.Value)
+                {
+                    toInsert.Add(new DateSeparator { Text = FormatDateLabel(msg.Timestamp.Date) });
+                    lastDate = msg.Timestamp.Date;
+                }
+                toInsert.Add(msg);
+            }
+
+            // 3. Insert the whole older block at the beginning (oldest first)
+            for (int i = toInsert.Count - 1; i >= 0; i--)
+                _messages.Insert(0, toInsert[i]);
+
+            // 4. Remove any accidental duplicate separators (safety)
+            RemoveDuplicateDateSeparators();
+            RemoveRedundantDateSeparators();
+            // Restore scroll position
             await Dispatcher.InvokeAsync(() =>
             {
                 _messagesScrollViewer?.UpdateLayout();
@@ -782,7 +807,7 @@ namespace Diploma
                                     }
                                     else
                                     {
-                                        _messages.Add(displayMsg);
+                                        AddMessageWithDateSeparator(displayMsg);
                                         Dispatcher.BeginInvoke(new Action(ScrollMessagesToBottom),
                                             System.Windows.Threading.DispatcherPriority.Background);
                                         // Mark as read immediately – chat is already open and visible
@@ -909,6 +934,76 @@ namespace Diploma
                     break;
             }
         }
+        private string FormatDateLabel(DateTime date)
+        {
+            if (date.Year == DateTime.Now.Year)
+                return date.ToString("d MMMM");            // e.g., "5 June"
+            return date.ToString("d MMMM yyyy");           // e.g., "5 June 2025"
+        }
+        private List<object> InsertDateSeparators(List<MessageDisplay> messages)
+        {
+            var result = new List<object>();
+            DateTime? lastDate = null;
+
+            foreach (var msg in messages)
+            {
+                var msgDate = msg.Timestamp.Date;
+                if (lastDate == null || msgDate != lastDate.Value)
+                {
+                    result.Add(new DateSeparator { Text = FormatDateLabel(msgDate) });
+                    lastDate = msgDate;
+                }
+                result.Add(msg);
+            }
+            return result;
+        }
+        private void AddMessageWithDateSeparator(MessageDisplay msg, List<object> targetList = null)
+        {
+            var list = targetList ?? (_messages as IList<object>);
+            if (list == null) return;
+
+            // Find the last MessageDisplay in the list
+            DateTime? lastDate = null;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                if (list[i] is MessageDisplay lastMsg)
+                {
+                    lastDate = lastMsg.Timestamp.Date;
+                    break;
+                }
+            }
+
+            if (lastDate == null || msg.Timestamp.Date != lastDate.Value)
+            {
+                list.Add(new DateSeparator { Text = FormatDateLabel(msg.Timestamp.Date) });
+            }
+            list.Add(msg);
+        }
+        private void RemoveDuplicateDateSeparators()
+        {
+            for (int i = 1; i < _messages.Count; i++)
+            {
+                if (_messages[i] is DateSeparator d1 && _messages[i - 1] is DateSeparator d2 && d1.Text == d2.Text)
+                {
+                    _messages.RemoveAt(i);
+                    i--; // stay at the same index since we removed one
+                }
+            }
+        }
+        private void RemoveRedundantDateSeparators()
+        {
+            for (int i = _messages.Count - 2; i >= 0; i--)
+            {
+                if (_messages[i] is DateSeparator &&
+                    i > 0 && i < _messages.Count - 1 &&
+                    _messages[i - 1] is MessageDisplay left &&
+                    _messages[i + 1] is MessageDisplay right &&
+                    left.Timestamp.Date == right.Timestamp.Date)
+                {
+                    _messages.RemoveAt(i);
+                }
+            }
+        }
     }
 
     // ---------- Display helper classes ----------
@@ -1033,5 +1128,21 @@ namespace Diploma
         public event PropertyChangedEventHandler PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string propertyName = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+    public class DateSeparator
+    {
+        public string Text { get; set; }
+    }
+    public class MessageTemplateSelector : DataTemplateSelector
+    {
+        public DataTemplate MessageTemplate { get; set; }
+        public DataTemplate DateSeparatorTemplate { get; set; }
+
+        public override DataTemplate SelectTemplate(object item, DependencyObject container)
+        {
+            if (item is DateSeparator)
+                return DateSeparatorTemplate;
+            return MessageTemplate;
+        }
     }
 }

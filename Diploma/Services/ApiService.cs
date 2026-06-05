@@ -70,9 +70,14 @@ namespace Diploma.Services
             return response.IsSuccessStatusCode;
         }
 
-        public async Task<List<MessageDto>> GetMessages(Guid conversationId)
+        public async Task<List<MessageDto>> GetMessages(
+    Guid conversationId, int count = 50, DateTime? before = null)
         {
-            var response = await _http.GetAsync($"api/messages?conversationId={conversationId}&userId={_userId}");
+            string url = $"api/messages?conversationId={conversationId}&userId={_userId}&count={count}";
+            if (before.HasValue)
+                url += $"&before={before.Value:O}";   // ISO 8601 format
+
+            var response = await _http.GetAsync(url);
             if (response.IsSuccessStatusCode)
                 return await response.Content.ReadFromJsonAsync<List<MessageDto>>();
             return new List<MessageDto>();

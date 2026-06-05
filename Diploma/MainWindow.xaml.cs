@@ -43,6 +43,11 @@ namespace Diploma
         private Point _clickPoint;
         private CancellationTokenSource _loadCts = new();
         private const int MaxMessageLength = 10000;
+        private ScrollViewer _messagesScrollViewer;    // for scroll detection
+        private bool _hasMoreMessages = true;
+        private bool _loadingOlderMessages = false;
+        private DateTime? _oldestMessageTimestamp;     // timestamp of the oldest loaded message
+        private const int PageSize = 50;
         public MainWindow(Guid userId, string username, string displayName,
                           string privateKey, string publicKey, Mutex userMutex)
         {
@@ -70,6 +75,31 @@ namespace Diploma
                     await _wsService.CloseAsync();
             };
         }
+
+        private void AttachScrollViewer()
+        {
+            if (_messagesScrollViewer != null)
+                return;   // already attached
+
+            // Find the ScrollViewer inside the ListBox
+            _messagesScrollViewer = FindVisualChild<ScrollViewer>(MessagesListBox);
+            if (_messagesScrollViewer != null)
+                _messagesScrollViewer.ScrollChanged += MessagesScrollChanged;
+        }
+
+        // Reuse the helper from ScrollMessagesToBottom – already exists
+        private static T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T found) return found;
+                var result = FindVisualChild<T>(child);
+                if (result != null) return result;
+            }
+            return null;
+        }
+
 
         private async Task LoadContactsAsync()
         {
@@ -134,10 +164,10 @@ namespace Diploma
         {
             if (VisualTreeHelper.GetChildrenCount(MessagesListBox) > 0)
             {
+                AttachScrollViewer();
                 var border = VisualTreeHelper.GetChild(MessagesListBox, 0) as Decorator;
                 var scrollViewer = border?.Child as ScrollViewer;
                 scrollViewer?.ScrollToEnd();
-                MessagesListBox.Opacity = 1;
             }
         }
 
@@ -224,16 +254,21 @@ namespace Diploma
             string contactPublicKey = _selectedChat?.PublicKey;
             if (contactPublicKey == null) return;
 
-            // 1. Hide the chat while we load (no rapid scroll)
-            MessagesListBox.Opacity = 0;
-
             _isLoadingMessages = true;
             _pendingIncomingMessages.Clear();
             _pendingOutgoingMessages.Clear();
+            _pendingReadReceipts.Clear();
 
-            var serverMessages = await _api.GetMessages(targetConvId);
+            // Load only the latest 50 messages
+            var serverMessages = await _api.GetMessages(targetConvId, PageSize, null);
+
+            // Cancel if the user switched chat during the API call
             if (cancellationToken.IsCancellationRequested) return;
 
+            // Determine whether more older messages exist
+            _hasMoreMessages = (serverMessages.Count == PageSize);
+
+            // Decrypt on background thread, checking cancellation periodically
             var decryptedList = await Task.Run(() =>
             {
                 var list = new List<MessageDisplay>();
@@ -271,6 +306,7 @@ namespace Diploma
                         Text = plainText,
                         SenderName = msg.SenderId == _currentUserId ? _currentDisplayName : _selectedChat?.ContactName ?? "",
                         Time = msg.Timestamp.ToLocalTime().ToString("t"),
+                        Timestamp = msg.Timestamp,
                         StatusIcon = statusIcon,
                         MessageId = msg.MessageId,
                         IsMine = msg.SenderId == _currentUserId
@@ -279,21 +315,29 @@ namespace Diploma
                 return list;
             }, cancellationToken);
 
-            if (cancellationToken.IsCancellationRequested) return;
+            // Check cancellation before touching the UI
+            if (cancellationToken.IsCancellationRequested)
+            {
+                _isLoadingMessages = false;
+                return;
+            }
 
-            // Guard: only apply if chat hasn't changed
+            // Guard: only apply if the chat hasn't changed in the meantime
             if (_selectedChat == null || _selectedChat.ConversationId != targetConvId)
             {
                 _isLoadingMessages = false;
                 return;
             }
 
-            // 2. Clear and repopulate the persistent collection (now safe)
+            // Remember the oldest timestamp for future pagination
+            _oldestMessageTimestamp = serverMessages.FirstOrDefault()?.Timestamp;
+
+            // Clear and refill the persistent collection
             _messages.Clear();
             foreach (var msg in decryptedList)
                 _messages.Add(msg);
 
-            // Add any pending messages that arrived during loading
+            // Add pending messages that arrived during loading
             foreach (var msg in _pendingIncomingMessages)
                 _messages.Add(msg);
             _pendingIncomingMessages.Clear();
@@ -308,24 +352,30 @@ namespace Diploma
                 var uniqueConvIds = _pendingReadReceipts.Distinct().ToList();
                 _pendingReadReceipts.Clear();
                 foreach (var convId in uniqueConvIds)
-                {
                     _ = Task.Run(() => _api.MarkAsRead(convId));
-                }
             }
 
             _isLoadingMessages = false;
 
-            // 3. Show the chat and scroll to the bottom
+
+            // Scroll to bottom after the UI has been updated
             Dispatcher.BeginInvoke(new Action(ScrollMessagesToBottom),
                                    System.Windows.Threading.DispatcherPriority.Loaded);
 
-            // 4. Mark messages from the other user as read
+            // Mark messages from the other user as read
             if (serverMessages.Any(m => m.SenderId != _currentUserId && m.Status != "Read"))
             {
                 _ = Task.Run(() => _api.MarkAsRead(targetConvId));
             }
         }
-
+        private async void MessagesScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            if (_loadingOlderMessages || !_hasMoreMessages) return;
+            if (_messagesScrollViewer.VerticalOffset <= 10)   // near top
+            {
+                await LoadOlderMessages();
+            }
+        }
         private async void SendButton_Click(object sender, RoutedEventArgs e)
         {
             if (_selectedChat == null)
@@ -407,6 +457,98 @@ namespace Diploma
                     });
                 }
             });
+        }
+        private async Task LoadOlderMessages()
+        {
+            if (_selectedChat == null || !_hasMoreMessages || _loadingOlderMessages)
+                return;
+
+            if (!_oldestMessageTimestamp.HasValue)
+                return;
+
+            _loadingOlderMessages = true;
+
+            // Record the current extent height before inserting new items
+            double previousExtentHeight = _messagesScrollViewer?.ExtentHeight ?? 0;
+
+            // Fetch older messages (before the oldest we currently have)
+            var olderMessages = await _api.GetMessages(
+                _selectedChat.ConversationId,
+                PageSize,
+                _oldestMessageTimestamp.Value);
+
+            // If fewer than PageSize returned, there are no more messages
+            if (olderMessages.Count < PageSize)
+                _hasMoreMessages = false;
+
+            if (olderMessages.Count == 0)
+            {
+                _loadingOlderMessages = false;
+                return;
+            }
+
+            // Update the oldest timestamp (the first message in this batch is the oldest)
+            _oldestMessageTimestamp = olderMessages.First().Timestamp;
+
+            string contactPublicKey = _selectedChat.PublicKey;
+
+            // Decrypt on background thread
+            var decryptedOlder = await Task.Run(() =>
+            {
+                var list = new List<MessageDisplay>();
+                foreach (var msg in olderMessages)
+                {
+                    string plainText;
+                    try
+                    {
+                        byte[] ciphertext = Convert.FromBase64String(msg.EncryptedContent);
+                        byte[] decrypted = ECCryptoService.DecryptData(
+                            ciphertext, _currentPrivateKey, contactPublicKey);
+                        plainText = Encoding.UTF8.GetString(decrypted);
+                    }
+                    catch
+                    {
+                        plainText = "[decryption failed]";
+                    }
+
+                    string statusIcon = "";
+                    if (msg.SenderId == _currentUserId)
+                    {
+                        statusIcon = msg.Status switch
+                        {
+                            "Sent" => "✓",
+                            "Read" => "✓✓",
+                            _ => ""
+                        };
+                    }
+
+                    list.Add(new MessageDisplay
+                    {
+                        Text = plainText,
+                        SenderName = msg.SenderId == _currentUserId ? _currentDisplayName : _selectedChat?.ContactName ?? "",
+                        Time = msg.Timestamp.ToLocalTime().ToString("t"),
+                        Timestamp = msg.Timestamp,
+                        StatusIcon = statusIcon,
+                        MessageId = msg.MessageId,
+                        IsMine = msg.SenderId == _currentUserId
+                    });
+                }
+                return list;
+            });
+
+            // Insert older messages at the beginning (oldest first)
+            for (int i = decryptedOlder.Count - 1; i >= 0; i--)
+                _messages.Insert(0, decryptedOlder[i]);
+
+            // Wait for layout to update, then restore the scroll position
+            await Dispatcher.InvokeAsync(() =>
+            {
+                _messagesScrollViewer?.UpdateLayout();
+                double newExtentHeight = _messagesScrollViewer?.ExtentHeight ?? 0;
+                _messagesScrollViewer?.ScrollToVerticalOffset(newExtentHeight - previousExtentHeight);
+            }, System.Windows.Threading.DispatcherPriority.Background);
+
+            _loadingOlderMessages = false;
         }
 
         private void MessageTextBox_KeyDown(object sender, KeyEventArgs e)
@@ -701,7 +843,7 @@ namespace Diploma
                         await Application.Current.Dispatcher.InvokeAsync(() =>
                         {
                             // Update the message in the open chat (if this conversation is open)
-                            var msg = _messages.FirstOrDefault(m => m.MessageId == msgId);
+                            var msg = _messages.OfType<MessageDisplay>().FirstOrDefault(m => m.MessageId == msgId);
                             if (msg != null)
                             {
                                 msg.StatusIcon = newStatus switch
@@ -868,6 +1010,7 @@ namespace Diploma
                 }
             }
         }
+        public DateTime Timestamp { get; set; }
 
         public event PropertyChangedEventHandler PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string propertyName = null) =>

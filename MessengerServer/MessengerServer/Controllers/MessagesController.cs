@@ -56,11 +56,22 @@ namespace MessengerServer.Controllers
 
         // Get messages for a conversation
         [HttpGet]
-        public async Task<IActionResult> GetMessages([FromQuery] Guid conversationId, [FromQuery] Guid userId)
+        public async Task<IActionResult> GetMessages(
+    [FromQuery] Guid conversationId,
+    [FromQuery] Guid userId,
+    [FromQuery] int count = 50,
+    [FromQuery] DateTime? before = null)
         {
-            var messages = await _db.Messages
-                .Where(m => m.ConversationId == conversationId)
-                .OrderBy(m => m.Timestamp)
+            IQueryable<Message> query = _db.Messages
+                .Where(m => m.ConversationId == conversationId);
+
+            if (before.HasValue)
+                query = query.Where(m => m.Timestamp < before.Value);
+
+            var messages = await query
+                .OrderByDescending(m => m.Timestamp)   // newest first (for Take)
+                .Take(count)
+                .OrderBy(m => m.Timestamp)             // flip to chronological
                 .Select(m => new
                 {
                     m.MessageId,
@@ -73,7 +84,7 @@ namespace MessengerServer.Controllers
 
             return Ok(messages);
         }
-        
+
         [HttpPost("read")]
         public async Task<IActionResult> MarkAsRead(MarkReadRequest dto)
         {

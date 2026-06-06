@@ -30,7 +30,7 @@ namespace Diploma
         private ChatItem _selectedChat;
         private Mutex _userMutex;
         private HashSet<Guid> _onlineUserIds = new HashSet<Guid>();
-
+        private Dictionary<Guid, HashSet<Guid>> _unreadMessageIds = new Dictionary<Guid, HashSet<Guid>>();
         // Observable collections for automatic UI updates without Refresh()
         private ObservableCollection<ChatItem> _chatItems;
         private ObservableCollection<FriendRequestItem> _friendRequests;
@@ -277,7 +277,9 @@ namespace Diploma
 
             string contactPublicKey = _selectedChat?.PublicKey;
             if (contactPublicKey == null) return;
-
+            // Mark all messages in this conversation as read (clear unread tracker)
+            if (_unreadMessageIds.ContainsKey(targetConvId))
+                _unreadMessageIds[targetConvId].Clear();
             _isLoadingMessages = true;
             _pendingIncomingMessages.Clear();
             _pendingOutgoingMessages.Clear();
@@ -766,6 +768,7 @@ namespace Diploma
                     var newConvId = Guid.Parse(doc.RootElement.GetProperty("conversationId").GetString());
                     string encryptedContentB64 = doc.RootElement.GetProperty("encryptedContent").GetString();
                     Guid senderId = Guid.Parse(doc.RootElement.GetProperty("senderId").GetString());
+                    Guid newMsgId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString());
 
                     // If the conversation is currently open, decrypt and add to _messages
                     if (_selectedChat?.ConversationId == newConvId)
@@ -789,27 +792,28 @@ namespace Diploma
                                     Text = plainText,
                                     SenderName = _selectedChat.ContactName,
                                     Time = messageTime.ToLocalTime().ToString("t"),
+                                    Timestamp = messageTime,
                                     StatusIcon = "",
-                                    MessageId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString()),
-                                    IsMine = false,
-                                    Timestamp = messageTime
+                                    MessageId = newMsgId,
+                                    IsMine = false
                                 };
 
                                 Application.Current.Dispatcher.BeginInvoke(() =>
                                 {
                                     if (_isLoadingMessages)
                                     {
-                                        // Hold the message; mark read after loading finishes
                                         _pendingIncomingMessages.Add(displayMsg);
+                                        // Defer the read receipt until the load finishes
                                         _pendingReadReceipts.Add(newConvId);
                                     }
                                     else
                                     {
-                                        AddMessageWithDateSeparator(displayMsg);
-                                        Dispatcher.BeginInvoke(new Action(ScrollMessagesToBottom),
-                                            System.Windows.Threading.DispatcherPriority.Background);
-                                        // Mark as read immediately – chat is already open and visible
-                                        _ = _api.MarkAsRead(newConvId);
+                                        _messages.Add(displayMsg);
+                                        Dispatcher.BeginInvoke(new Action(() => ScrollMessagesToBottom()),
+                                                               System.Windows.Threading.DispatcherPriority.Background);
+
+                                        // Chat is open and visible → mark as read immediately
+                                        _ = Task.Run(() => _api.MarkAsRead(newConvId));
                                     }
                                 });
                             }
@@ -817,7 +821,7 @@ namespace Diploma
                         });
                     }
 
-                    // Update last message preview in sidebar (unchanged)
+                    // Update last message preview in sidebar
                     var targetChat = _chatItems?.FirstOrDefault(c => c.ConversationId == newConvId);
                     if (targetChat != null)
                     {
@@ -840,7 +844,13 @@ namespace Diploma
                         }
 
                         if (_selectedChat?.ConversationId != newConvId)
+                        {
                             targetChat.UnreadCount++;
+                            if (!_unreadMessageIds.ContainsKey(newConvId))
+                                _unreadMessageIds[newConvId] = new HashSet<Guid>();
+                            _unreadMessageIds[newConvId].Add(newMsgId);
+                        }
+
                         MoveChatToTop(targetChat);
                     }
                     break;
@@ -948,7 +958,7 @@ namespace Diploma
                     var delMsgId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString());
                     var delConvId = Guid.Parse(doc.RootElement.GetProperty("conversationId").GetString());
 
-                    // If this conversation is open, remove the message
+                    // Remove from UI if the conversation is open
                     if (_selectedChat?.ConversationId == delConvId)
                     {
                         var msgToRemove = _messages.OfType<MessageDisplay>().FirstOrDefault(m => m.MessageId == delMsgId);
@@ -960,7 +970,17 @@ namespace Diploma
                             RemoveOrphanedDateSeparators();
                         }
                     }
-                    // Reload the chat list to update preview, unread count, etc.
+                    else
+                    {
+                        // If the deleted message was tracked as unread, decrement the unread count
+                        if (_unreadMessageIds.TryGetValue(delConvId, out var unreadSet) && unreadSet.Remove(delMsgId))
+                        {
+                            var delChat = _chatItems?.FirstOrDefault(c => c.ConversationId == delConvId);
+                            if (delChat != null && delChat.UnreadCount > 0)
+                                delChat.UnreadCount--;
+                        }
+                    }
+
                     await UpdateChatPreviewFromServer(delConvId);
                     break;
 
@@ -970,6 +990,7 @@ namespace Diploma
                     {
                         _messages.Clear();
                     }
+                    _unreadMessageIds.Remove(clearConvId);
                     // Update sidebar preview
                     var clearChat = _chatItems?.FirstOrDefault(c => c.ConversationId == clearConvId);
                     if (clearChat != null)
@@ -978,6 +999,7 @@ namespace Diploma
                         clearChat.LastMessageTimestamp = null;
                         clearChat.LastMessageStatus = "";
                         clearChat.IsLastMessageFromMe = false;
+                        clearChat.UnreadCount = 0;
                     }
                     await UpdateChatPreviewFromServer(clearConvId);
                     break;
@@ -1118,6 +1140,8 @@ namespace Diploma
                 bool success = await _api.ClearHistory(conversationId);
                 if (success)
                 {
+                    if (_unreadMessageIds.ContainsKey(conversationId))
+                        _unreadMessageIds.Remove(conversationId);
                     // If this conversation is currently open, clear the messages
                     if (_selectedChat?.ConversationId == conversationId)
                     {

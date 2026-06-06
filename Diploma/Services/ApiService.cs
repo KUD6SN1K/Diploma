@@ -87,6 +87,23 @@ namespace Diploma.Services
             var payload = new { UserId = _userId, ConversationId = conversationId };
             await _http.PostAsJsonAsync("api/messages/read", payload);
         }
+        public async Task<bool> DeleteMessage(Guid messageId)
+        {
+            var response = await _http.DeleteAsync($"api/messages/{messageId}?userId={_userId}");
+            return response.IsSuccessStatusCode;
+        }
+
+        public async Task<bool> ClearHistory(Guid conversationId)
+        {
+            var response = await _http.DeleteAsync($"api/messages/{conversationId}/messages?userId={_userId}");
+            return response.IsSuccessStatusCode;
+        }
+
+        public async Task<bool> DeleteContact(Guid contactId)
+        {
+            var response = await _http.DeleteAsync($"api/contacts/{contactId}?userId={_userId}");
+            return response.IsSuccessStatusCode;
+        }
     }
 
     // DTOs matching server responses

@@ -33,6 +33,8 @@
                             <TextBox.ContextMenu>
                                 <ContextMenu>
                                     <MenuItem Header="Copy" Click="CopyMessage_Click"/>
+                                    <MenuItem Header="Delete" Click="DeleteMessage_Click" 
+                                              Tag="{Binding MessageId}"/>
                                 </ContextMenu>
                             </TextBox.ContextMenu>
                         </TextBox>
@@ -222,6 +224,14 @@
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Grid>
+                                <Grid.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Clear history" Click="ClearHistory_Click" 
+                      Tag="{Binding ConversationId}"/>
+                                        <MenuItem Header="Delete friend" Click="DeleteFriend_Click"
+                      Tag="{Binding ContactId}"/>
+                                    </ContextMenu>
+                                </Grid.ContextMenu>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>

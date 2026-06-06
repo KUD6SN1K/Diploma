@@ -4,6 +4,7 @@ using MessengerServer.Models;
 using MessengerServer.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace MessengerServer.Controllers
 {
@@ -109,6 +110,31 @@ namespace MessengerServer.Controllers
 
             if (unread.Any())
                 await _db.SaveChangesAsync();
+
+            return Ok();
+        }
+        
+        [HttpDelete("{messageId}")]
+        public async Task<IActionResult> DeleteMessage(Guid messageId, [FromQuery] Guid userId)
+        {
+            var msg = await _db.Messages.FindAsync(messageId);
+            if (msg == null) return NotFound();
+            if (msg.SenderId != userId) return Forbid();   // only sender can delete
+
+            var conversationId = msg.ConversationId;
+            _db.Messages.Remove(msg);
+            await _db.SaveChangesAsync();
+
+            // Notify the other user
+            var conversation = await _db.Conversations.FindAsync(conversationId);
+            var otherUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
+            var notification = JsonSerializer.Serialize(new
+            {
+                type = "delete_message",
+                messageId = messageId.ToString(),
+                conversationId = conversationId.ToString()
+            });
+            await _connMgr.SendAsync(otherUserId, notification);
 
             return Ok();
         }

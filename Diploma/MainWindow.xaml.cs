@@ -130,6 +130,7 @@ namespace Diploma
                     LastMessage = preview,
                     ContactUserId = c.UserId,
                     PublicKey = c.PublicKey,
+                    ContactId = c.ContactId,
                     ConversationId = c.ConversationId,
                     LastMessageStatus = c.LastMessageStatus ?? "",
                     IsLastMessageFromMe = c.LastMessageSenderId == _currentUserId,
@@ -932,6 +933,56 @@ namespace Diploma
                         OnlineStatusText.Visibility = Visibility.Visible;
                     }
                     break;
+                case "delete_message":
+                    var delMsgId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString());
+                    var delConvId = Guid.Parse(doc.RootElement.GetProperty("conversationId").GetString());
+
+                    // If this conversation is open, remove the message
+                    if (_selectedChat?.ConversationId == delConvId)
+                    {
+                        var msgToRemove = _messages.OfType<MessageDisplay>().FirstOrDefault(m => m.MessageId == delMsgId);
+                        if (msgToRemove != null)
+                        {
+                            int idx = _messages.IndexOf(msgToRemove);
+                            _messages.RemoveAt(idx);
+                            RemoveRedundantDateSeparators();
+                            RemoveOrphanedDateSeparators();
+                        }
+                    }
+                    break;
+
+                case "clear_history":
+                    var clearConvId = Guid.Parse(doc.RootElement.GetProperty("conversationId").GetString());
+                    if (_selectedChat?.ConversationId == clearConvId)
+                    {
+                        _messages.Clear();
+                    }
+                    // Update sidebar preview
+                    var clearChat = _chatItems?.FirstOrDefault(c => c.ConversationId == clearConvId);
+                    if (clearChat != null)
+                    {
+                        clearChat.LastMessage = "";
+                        clearChat.LastMessageTimestamp = null;
+                        clearChat.LastMessageStatus = "";
+                        clearChat.IsLastMessageFromMe = false;
+                    }
+                    break;
+
+                case "delete_friend":
+                    var delContactId = Guid.Parse(doc.RootElement.GetProperty("contactId").GetString());
+                    var friendChat = _chatItems?.FirstOrDefault(c => c.ContactId == delContactId);
+                    if (friendChat != null)
+                    {
+                        _chatItems.Remove(friendChat);
+                        if (_selectedChat == friendChat)
+                        {
+                            _selectedChat = null;
+                            ChatHeaderText.Text = "Select a chat";
+                            OnlineStatusText.Visibility = Visibility.Collapsed;
+                            _messages.Clear();
+                        }
+                    }
+                    break;
             }
         }
         private string FormatDateLabel(DateTime date)
@@ -1004,6 +1055,96 @@ namespace Diploma
                 }
             }
         }
+        private async void DeleteMessage_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuItem menuItem && menuItem.Tag is Guid messageId)
+            {
+                bool success = await _api.DeleteMessage(messageId);
+                if (success)
+                {
+                    // Remove the message locally
+                    var msgToRemove = _messages.OfType<MessageDisplay>().FirstOrDefault(m => m.MessageId == messageId);
+                    if (msgToRemove != null)
+                    {
+                        int index = _messages.IndexOf(msgToRemove);
+                        _messages.RemoveAt(index);
+                        RemoveRedundantDateSeparators();
+                        RemoveOrphanedDateSeparators();
+                    }
+                }
+            }
+        }
+        private void RemoveOrphanedDateSeparators()
+        {
+            // Remove any separator that is followed by another separator or is at the end (no message after)
+            for (int i = _messages.Count - 1; i >= 0; i--)
+            {
+                if (_messages[i] is DateSeparator)
+                {
+                    bool isLast = i == _messages.Count - 1;
+                    bool followedBySeparator = !isLast && _messages[i + 1] is DateSeparator;
+                    bool followedByNothing = isLast;
+                    if (followedBySeparator || followedByNothing)
+                    {
+                        _messages.RemoveAt(i);
+                    }
+                }
+            }
+        }
+        private async void ClearHistory_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuItem menuItem && menuItem.Tag is Guid conversationId)
+            {
+                bool success = await _api.ClearHistory(conversationId);
+                if (success)
+                {
+                    // If this conversation is currently open, clear the messages
+                    if (_selectedChat?.ConversationId == conversationId)
+                    {
+                        _messages.Clear();
+                    }
+                    // Update the chat preview
+                    var chat = _chatItems?.FirstOrDefault(c => c.ConversationId == conversationId);
+                    if (chat != null)
+                    {
+                        chat.LastMessage = "";
+                        chat.LastMessageTimestamp = null;
+                        chat.LastMessageStatus = "";
+                        chat.IsLastMessageFromMe = false;
+                        // No Refresh needed – properties notify
+                    }
+                }
+            }
+        }
+
+        private async void DeleteFriend_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuItem menuItem && menuItem.Tag is Guid contactId)
+            {
+                var result = MessageBox.Show("Delete this friend? All messages will be lost.",
+                    "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (result != MessageBoxResult.Yes) return;
+
+                bool success = await _api.DeleteContact(contactId);
+                if (success)
+                {
+                    // Remove from sidebar
+                    var chat = _chatItems?.FirstOrDefault(c => c.ContactId == contactId);
+                    if (chat != null)
+                    {
+                        _chatItems.Remove(chat);
+                        if (_selectedChat == chat)
+                        {
+                            _selectedChat = null;
+                            ChatHeaderText.Text = "Select a chat";
+                            OnlineStatusText.Visibility = Visibility.Collapsed;
+                            _messages.Clear();
+                        }
+                    }
+                }
+            }
+        }
+
     }
 
     // ---------- Display helper classes ----------
@@ -1017,6 +1158,7 @@ namespace Diploma
         public string ContactName { get; set; }
         public string Username { get; set; }
         public Guid ContactUserId { get; set; }
+        public Guid ContactId { get; set; }
         public string PublicKey { get; set; }
         public Guid ConversationId { get; set; }
         public bool IsLastMessageFromMe { get; set; }

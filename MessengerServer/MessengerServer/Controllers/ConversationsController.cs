@@ -2,7 +2,8 @@
 using MessengerServer.DTOs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-
+using System.Text.Json;
+using MessengerServer.Services;
 namespace MessengerServer.Controllers
 {
     [ApiController]
@@ -10,7 +11,12 @@ namespace MessengerServer.Controllers
     public class ConversationsController : ControllerBase
     {
         private readonly AppDbContext _db;
-        public ConversationsController(AppDbContext db) => _db = db;
+        private readonly ConnectionManager _connMgr;
+        public ConversationsController(AppDbContext db, ConnectionManager connMgr)
+        {
+            _db = db;
+            _connMgr = connMgr;                       
+        }
 
         // Get conversation between current user and another user (by username)
         [HttpGet]
@@ -31,6 +37,29 @@ namespace MessengerServer.Controllers
                 OtherUsername = other.Username,
                 OtherDisplayName = other.DisplayName
             });
+        }
+
+        [HttpDelete("{conversationId}/messages")]
+        public async Task<IActionResult> ClearHistory(Guid conversationId, [FromQuery] Guid userId)
+        {
+            var conv = await _db.Conversations.FindAsync(conversationId);
+            if (conv == null) return NotFound();
+            if (conv.User1Id != userId && conv.User2Id != userId) return Forbid();
+
+            var messages = await _db.Messages.Where(m => m.ConversationId == conversationId).ToListAsync();
+            _db.Messages.RemoveRange(messages);
+            await _db.SaveChangesAsync();
+
+            // Notify the other user
+            var otherUserId = conv.User1Id == userId ? conv.User2Id : conv.User1Id;
+            var notification = JsonSerializer.Serialize(new
+            {
+                type = "clear_history",
+                conversationId = conversationId.ToString()
+            });
+            await _connMgr.SendAsync(otherUserId, notification);
+
+            return Ok();
         }
     }
 }

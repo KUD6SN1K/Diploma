@@ -191,5 +191,38 @@ public class ContactsController : ControllerBase
             }).ToListAsync();
         return Ok(pending);
     }
+    
+    [HttpDelete("{contactId}")]
+    public async Task<IActionResult> DeleteContact(Guid contactId, [FromQuery] Guid userId)
+    {
+        var contact = await _db.Contacts.FindAsync(contactId);
+        if (contact == null) return NotFound();
+        if (contact.UserId != userId && contact.ContactUserId != userId) return Forbid();
+
+        // Delete the conversation and its messages
+        var conv = await _db.Conversations.FirstOrDefaultAsync(c =>
+            (c.User1Id == contact.UserId && c.User2Id == contact.ContactUserId) ||
+            (c.User1Id == contact.ContactUserId && c.User2Id == contact.UserId));
+        if (conv != null)
+        {
+            var messages = await _db.Messages.Where(m => m.ConversationId == conv.ConversationId).ToListAsync();
+            _db.Messages.RemoveRange(messages);
+            _db.Conversations.Remove(conv);
+        }
+
+        _db.Contacts.Remove(contact);
+        await _db.SaveChangesAsync();
+
+        // Notify the other user
+        var otherUserId = contact.UserId == userId ? contact.ContactUserId : contact.UserId;
+        var notification = JsonSerializer.Serialize(new
+        {
+            type = "delete_friend",
+            contactId = contactId.ToString()
+        });
+        await _connMgr.SendAsync(otherUserId, notification);
+
+        return Ok();
+    }
 
 }

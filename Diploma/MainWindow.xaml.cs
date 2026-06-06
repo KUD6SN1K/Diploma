@@ -639,14 +639,10 @@ namespace Diploma
             {
                 await _api.RespondToRequest(contactId, true);
 
-                // Remove from the observable collection directly
+                // Immediately remove the request from the UI
                 var item = _friendRequests?.FirstOrDefault(r => r.RequestId == contactId);
                 if (item != null)
-                {
                     _friendRequests.Remove(item);
-                }
-
-                // The WebSocket "contact_added" handler will reload the chat list and set online status.
             }
         }
 
@@ -795,7 +791,8 @@ namespace Diploma
                                     Time = messageTime.ToLocalTime().ToString("t"),
                                     StatusIcon = "",
                                     MessageId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString()),
-                                    IsMine = false
+                                    IsMine = false,
+                                    Timestamp = messageTime
                                 };
 
                                 Application.Current.Dispatcher.BeginInvoke(() =>
@@ -844,6 +841,7 @@ namespace Diploma
 
                         if (_selectedChat?.ConversationId != newConvId)
                             targetChat.UnreadCount++;
+                        MoveChatToTop(targetChat);
                     }
                     break;
 
@@ -859,7 +857,12 @@ namespace Diploma
                     break;
 
                 case "contact_added":
+                    var addedContactId = Guid.Parse(doc.RootElement.GetProperty("contactId").GetString());   // <-- new
                     var addedContactUserId = Guid.Parse(doc.RootElement.GetProperty("contactUserId").GetString());
+                    string addedContactUsername = doc.RootElement.GetProperty("contactUsername").GetString();
+                    string addedContactDisplayName = doc.RootElement.GetProperty("contactDisplayName").GetString();
+                    string addedContactPublicKey = doc.RootElement.GetProperty("publicKey").GetString();
+                    Guid addedConversationId = Guid.Parse(doc.RootElement.GetProperty("conversationId").GetString());
                     bool addedIsOnline = doc.RootElement.GetProperty("isOnline").GetBoolean();
 
                     if (addedIsOnline)
@@ -867,15 +870,23 @@ namespace Diploma
                     else
                         _onlineUserIds.Remove(addedContactUserId);
 
-                    _ = LoadContactsAsync().ContinueWith(_ =>
+                    var newChat = new ChatItem
                     {
-                        Application.Current.Dispatcher.Invoke(() =>
-                        {
-                            ApplyOnlineStatusFromCache();
-                        });
-                    });
+                        ContactName = addedContactDisplayName,
+                        Username = addedContactUsername,
+                        ContactUserId = addedContactUserId,
+                        PublicKey = addedContactPublicKey,
+                        ConversationId = addedConversationId,
+                        IsOnline = addedIsOnline,
+                        ContactId = addedContactId,   // <-- now correctly set
+                        LastMessage = "",
+                        LastMessageStatus = "",
+                        IsLastMessageFromMe = false,
+                        UnreadCount = 0,
+                        LastMessageTimestamp = null
+                    };
 
-                    _ = LoadPendingRequestsAsync();
+                    _chatItems.Add(newChat);
                     break;
 
                 case "message_status":
@@ -949,6 +960,8 @@ namespace Diploma
                             RemoveOrphanedDateSeparators();
                         }
                     }
+                    // Reload the chat list to update preview, unread count, etc.
+                    await UpdateChatPreviewFromServer(delConvId);
                     break;
 
                 case "clear_history":
@@ -966,6 +979,7 @@ namespace Diploma
                         clearChat.LastMessageStatus = "";
                         clearChat.IsLastMessageFromMe = false;
                     }
+                    await UpdateChatPreviewFromServer(clearConvId);
                     break;
 
                 case "delete_friend":
@@ -1070,6 +1084,8 @@ namespace Diploma
                         _messages.RemoveAt(index);
                         RemoveRedundantDateSeparators();
                         RemoveOrphanedDateSeparators();
+                        if (_selectedChat != null)
+                            await UpdateChatPreviewFromServer(_selectedChat.ConversationId);
                     }
                 }
             }
@@ -1095,6 +1111,10 @@ namespace Diploma
         {
             if (sender is MenuItem menuItem && menuItem.Tag is Guid conversationId)
             {
+                var result = MessageBox.Show("Clear all messages in this chat? This cannot be undone.",
+                    "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (result != MessageBoxResult.Yes) return;
+
                 bool success = await _api.ClearHistory(conversationId);
                 if (success)
                 {
@@ -1104,15 +1124,7 @@ namespace Diploma
                         _messages.Clear();
                     }
                     // Update the chat preview
-                    var chat = _chatItems?.FirstOrDefault(c => c.ConversationId == conversationId);
-                    if (chat != null)
-                    {
-                        chat.LastMessage = "";
-                        chat.LastMessageTimestamp = null;
-                        chat.LastMessageStatus = "";
-                        chat.IsLastMessageFromMe = false;
-                        // No Refresh needed – properties notify
-                    }
+                    await UpdateChatPreviewFromServer(conversationId);
                 }
             }
         }
@@ -1143,6 +1155,85 @@ namespace Diploma
                     }
                 }
             }
+        }
+        private void UpdateChatPreviewAfterDelete(Guid conversationId)
+        {
+            var chat = _chatItems?.FirstOrDefault(c => c.ConversationId == conversationId);
+            if (chat == null) return;
+
+            // Get remaining messages (only MessageDisplay) from the open chat if it's selected,
+            // otherwise we need to fetch from server. But we can reconstruct from _messages if open.
+            List<MessageDisplay> remaining = null;
+            if (_selectedChat?.ConversationId == conversationId)
+            {
+                remaining = _messages.OfType<MessageDisplay>().ToList();
+            }
+            else
+            {
+                // Not open – we must reload from server? For simplicity, just clear preview.
+                chat.LastMessage = "";
+                chat.LastMessageTimestamp = null;
+                chat.LastMessageStatus = "";
+                chat.IsLastMessageFromMe = false;
+                chat.UnreadCount = 0;
+                return;
+            }
+
+            if (remaining.Count > 0)
+            {
+                var last = remaining.Last();
+                chat.LastMessage = last.Text.Length > 25 ? last.Text.Substring(0, 25) + "..." : last.Text;
+                chat.LastMessageTimestamp = last.Timestamp;
+                chat.LastMessageStatus = last.IsMine ? (last.StatusIcon == "✓✓" ? "Read" : "Sent") : "";
+                chat.IsLastMessageFromMe = last.IsMine;
+            }
+            else
+            {
+                chat.LastMessage = "";
+                chat.LastMessageTimestamp = null;
+                chat.LastMessageStatus = "";
+                chat.IsLastMessageFromMe = false;
+            }
+            // Unread count remains (it's not affected by deletion, unless we deleted unread messages – but we only allow sender to delete).
+        }
+        private void ChatListBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // Prevent the right‑click from selecting the item
+            e.Handled = true;
+        }
+        private async Task UpdateChatPreviewFromServer(Guid conversationId)
+        {
+            var chat = _chatItems?.FirstOrDefault(c => c.ConversationId == conversationId);
+            if (chat == null) return;
+
+            var lastMsgDto = await _api.GetLastMessage(conversationId);
+            if (lastMsgDto == null || !lastMsgDto.Exists)
+            {
+                // No messages left – clear the preview
+                chat.LastMessage = "";
+                chat.LastMessageTimestamp = null;
+                chat.LastMessageStatus = "";
+                chat.IsLastMessageFromMe = false;
+                chat.UnreadCount = 0;   // safe for clear history; for delete message this might be wrong, but we'll handle separately
+                return;
+            }
+
+            // Decrypt preview
+            string preview = "";
+            try
+            {
+                byte[] ciphertext = Convert.FromBase64String(lastMsgDto.EncryptedContent);
+                byte[] decrypted = ECCryptoService.DecryptData(ciphertext, _currentPrivateKey, chat.PublicKey);
+                string fullText = Encoding.UTF8.GetString(decrypted);
+                preview = fullText.Length > 25 ? fullText.Substring(0, 25) + "..." : fullText;
+            }
+            catch { preview = "[encrypted]"; }
+
+            chat.LastMessage = preview;
+            chat.LastMessageTimestamp = lastMsgDto.Timestamp;
+            chat.LastMessageStatus = lastMsgDto.SenderId == _currentUserId ? lastMsgDto.Status : "";
+            chat.IsLastMessageFromMe = lastMsgDto.SenderId == _currentUserId;
+            // Unread count stays as is (not affected by this update)
         }
 
     }

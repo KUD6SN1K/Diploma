@@ -139,6 +139,48 @@ namespace MessengerServer.Controllers
             return Ok();
         }
 
+        [HttpDelete("{conversationId}/messages")]
+        public async Task<IActionResult> ClearHistory(Guid conversationId, [FromQuery] Guid userId)
+        {
+            var conv = await _db.Conversations.FindAsync(conversationId);
+            if (conv == null) return NotFound();
+            if (conv.User1Id != userId && conv.User2Id != userId) return Forbid();
+
+            var messages = await _db.Messages.Where(m => m.ConversationId == conversationId).ToListAsync();
+            _db.Messages.RemoveRange(messages);
+            await _db.SaveChangesAsync();
+
+            var otherUserId = conv.User1Id == userId ? conv.User2Id : conv.User1Id;
+            var notification = JsonSerializer.Serialize(new
+            {
+                type = "clear_history",
+                conversationId = conversationId.ToString()
+            });
+            await _connMgr.SendAsync(otherUserId, notification);
+
+            return Ok();
+        }
+        
+        [HttpGet("last")]
+        public async Task<IActionResult> GetLastMessage([FromQuery] Guid conversationId, [FromQuery] Guid userId)
+        {
+            var lastMsg = await _db.Messages
+                .Where(m => m.ConversationId == conversationId)
+                .OrderByDescending(m => m.Timestamp)
+                .FirstOrDefaultAsync();
+
+            if (lastMsg == null)
+                return Ok(new { exists = false });
+
+            return Ok(new
+            {
+                exists = true,
+                encryptedContent = Convert.ToBase64String(lastMsg.EncryptedContent),
+                senderId = lastMsg.SenderId,
+                status = lastMsg.Status,
+                timestamp = lastMsg.Timestamp
+            });
+        }
         public class MarkReadRequest
         {
             public Guid UserId { get; set; }

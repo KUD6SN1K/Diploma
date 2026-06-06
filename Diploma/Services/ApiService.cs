@@ -104,6 +104,13 @@ namespace Diploma.Services
             var response = await _http.DeleteAsync($"api/contacts/{contactId}?userId={_userId}");
             return response.IsSuccessStatusCode;
         }
+        public async Task<LastMessageDto?> GetLastMessage(Guid conversationId)
+        {
+            var response = await _http.GetAsync($"api/messages/last?conversationId={conversationId}&userId={_userId}");
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadFromJsonAsync<LastMessageDto>();
+            return null;
+        }
     }
 
     // DTOs matching server responses
@@ -145,5 +152,13 @@ namespace Diploma.Services
         public DateTime Timestamp { get; set; }
         public string Status { get; set; }
         
+    }
+    public class LastMessageDto
+    {
+        public bool Exists { get; set; }
+        public string EncryptedContent { get; set; }
+        public Guid SenderId { get; set; }
+        public string Status { get; set; }
+        public DateTime Timestamp { get; set; }
     }
 }

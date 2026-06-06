@@ -86,11 +86,18 @@ public class ContactsController : ControllerBase
             var onlineIds = _connMgr.GetOnlineUserIds();
 
             // Notify user1 (requester) that the request was accepted + user2's online status
+            Guid convId = conv.ConversationId;
+            Guid contactId = contact.ContactId;   // <-- capture the contact ID
+
             var notifyUser1 = JsonSerializer.Serialize(new
             {
                 type = "contact_added",
+                contactId = contactId.ToString(),
                 contactUserId = user2.ToString(),
                 contactUsername = _db.Users.Find(user2)?.Username,
+                contactDisplayName = _db.Users.Find(user2)?.DisplayName,
+                publicKey = _db.Users.Find(user2)?.EccPublicKey,
+                conversationId = convId.ToString(),
                 isOnline = onlineIds.Contains(user2)
             });
             await _connMgr.SendAsync(user1, notifyUser1);
@@ -99,8 +106,12 @@ public class ContactsController : ControllerBase
             var notifyUser2 = JsonSerializer.Serialize(new
             {
                 type = "contact_added",
+                contactId = contactId.ToString(),
                 contactUserId = user1.ToString(),
                 contactUsername = _db.Users.Find(user1)?.Username,
+                contactDisplayName = _db.Users.Find(user1)?.DisplayName,
+                publicKey = _db.Users.Find(user1)?.EccPublicKey,
+                conversationId = convId.ToString(),
                 isOnline = onlineIds.Contains(user1)
             });
             await _connMgr.SendAsync(user2, notifyUser2);

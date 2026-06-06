@@ -188,7 +188,8 @@
          KeyboardNavigation.ControlTabNavigation="None"
          PreviewKeyDown="ChatListBox_PreviewKeyDown"
          PreviewMouseLeftButtonDown="ChatListBox_PreviewMouseLeftButtonDown"
-         PreviewMouseLeftButtonUp="ChatListBox_PreviewMouseLeftButtonUp">
+         PreviewMouseLeftButtonUp="ChatListBox_PreviewMouseLeftButtonUp"
+         PreviewMouseRightButtonDown="ChatListBox_PreviewMouseRightButtonDown">
                     <ListBox.Resources>
                         <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
                     </ListBox.Resources>

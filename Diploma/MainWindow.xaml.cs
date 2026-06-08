@@ -51,6 +51,8 @@ namespace Diploma
         private const int PageSize = 50;
         private bool _suppressScrollEvents = false;
         private DispatcherTimer _scrollSuppressTimer;
+        private DispatcherTimer _headerFeedbackTimer;
+
         public MainWindow(Guid userId, string username, string displayName,
                           string privateKey, string publicKey, Mutex userMutex)
         {
@@ -157,7 +159,7 @@ namespace Diploma
             _friendRequests = new ObservableCollection<FriendRequestItem>(
                 requests.Select(r => new FriendRequestItem
                 {
-                    FromUsername = r.FromUsername,
+                    FromDisplayName = r.FromDisplayName,
                     RequestId = r.ContactId
                 })
             );
@@ -218,7 +220,8 @@ namespace Diploma
                 OnlineStatusText.Foreground = new SolidColorBrush(Colors.Gray);
                 OnlineStatusText.Visibility = Visibility.Visible;
             }
-            ChatHeaderText.Text = selected.ContactName;
+            _headerFeedbackTimer?.Stop();
+            ChatHeaderText.Text = $"{selected.ContactName} ({selected.Username})";
             selected.UnreadCount = 0;
             // No Refresh() needed – UnreadCount property change will notify UI
 
@@ -667,6 +670,7 @@ namespace Diploma
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
             var settings = new SettingsWindow(_currentUserId, _currentUsername, _currentDisplayName, _api);
+            settings.Owner = this;
             if (settings.ShowDialog() == true)
             {
                 // Update local display name
@@ -869,12 +873,12 @@ namespace Diploma
 
                 case "friend_request":
                     var reqId = Guid.Parse(doc.RootElement.GetProperty("requestId").GetString());
-                    var fromUsername = doc.RootElement.GetProperty("fromUsername").GetString();
+                    var FromDisplayName = doc.RootElement.GetProperty("fromDisplayName").GetString();
 
                     _friendRequests?.Add(new FriendRequestItem
                     {
                         RequestId = reqId,
-                        FromUsername = fromUsername
+                        FromDisplayName = FromDisplayName
                     });
                     UpdateFriendRequestsVisibility();
                     break;
@@ -967,6 +971,7 @@ namespace Diploma
                         OnlineStatusText.Visibility = Visibility.Visible;
                     }
                     break;
+
                 case "delete_message":
                     var delMsgId = Guid.Parse(doc.RootElement.GetProperty("messageId").GetString());
                     var delConvId = Guid.Parse(doc.RootElement.GetProperty("conversationId").GetString());
@@ -1032,6 +1037,7 @@ namespace Diploma
                         }
                     }
                     break;
+
                 case "display_name_changed":
                     var changedUserId = Guid.Parse(doc.RootElement.GetProperty("userId").GetString());
                     string newDisplayName = doc.RootElement.GetProperty("newDisplayName").GetString();
@@ -1125,10 +1131,18 @@ namespace Diploma
         {
             if (sender is MenuItem menuItem && menuItem.Tag is Guid messageId)
             {
+                var result = MessageBox.Show(
+                    "This action cannot be undone. The message will be deleted for both users.",
+                    "Delete message?",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (result != MessageBoxResult.Yes)
+                    return;
+
                 bool success = await _api.DeleteMessage(messageId);
                 if (success)
                 {
-                    // Remove the message locally
                     var msgToRemove = _messages.OfType<MessageDisplay>().FirstOrDefault(m => m.MessageId == messageId);
                     if (msgToRemove != null)
                     {
@@ -1142,6 +1156,7 @@ namespace Diploma
                 }
             }
         }
+
         private void RemoveOrphanedDateSeparators()
         {
             // Remove any separator that is followed by another separator or is at the end (no message after)
@@ -1194,7 +1209,7 @@ namespace Diploma
                 bool success = await _api.DeleteContact(contactId);
                 if (success)
                 {
-                    // Remove from sidebar
+                    // Remove from the underlying collection
                     var chat = _chatItems?.FirstOrDefault(c => c.ContactId == contactId);
                     if (chat != null)
                     {
@@ -1207,9 +1222,13 @@ namespace Diploma
                             _messages.Clear();
                         }
                     }
+
+                    // Clear the search box – this resets the filter and shows the updated full list
+                    FriendUsernameBox.Clear();
                 }
             }
         }
+
         private void UpdateFriendRequestsVisibility()
         {
             bool hasRequests = _friendRequests != null && _friendRequests.Count > 0;
@@ -1255,6 +1274,46 @@ namespace Diploma
             chat.LastMessageStatus = lastMsgDto.SenderId == _currentUserId ? lastMsgDto.Status : "";
             chat.IsLastMessageFromMe = lastMsgDto.SenderId == _currentUserId;
             // Unread count stays as is (not affected by this update)
+        }
+        private void FriendUsernameBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            string search = FriendUsernameBox.Text.Trim();
+
+            if (string.IsNullOrEmpty(search))
+            {
+                // Show all chats
+                ChatListBox.ItemsSource = _chatItems;
+            }
+            else
+            {
+                // Filter chats by display name (case‑insensitive)
+                var filtered = _chatItems
+                    .Where(c => c.ContactName.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .ToList();
+                ChatListBox.ItemsSource = filtered;
+            }
+        }
+        private void ChatHeaderText_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (_selectedChat == null || string.IsNullOrWhiteSpace(_selectedChat.Username))
+                return;
+
+            Clipboard.SetText(_selectedChat.Username);
+
+            // Cancel any previous running timer
+            _headerFeedbackTimer?.Stop();
+
+            var originalText = $"{_selectedChat.ContactName} ({_selectedChat.Username})";
+            ChatHeaderText.Text = "Username copied!";
+
+            _headerFeedbackTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(0.5) };
+            _headerFeedbackTimer.Tick += (s, ev) =>
+            {
+                // Only revert if the feedback hasn't already been replaced by another click
+                ChatHeaderText.Text = originalText;
+                _headerFeedbackTimer.Stop();
+            };
+            _headerFeedbackTimer.Start();
         }
 
     }
@@ -1357,7 +1416,7 @@ namespace Diploma
 
     public class FriendRequestItem
     {
-        public string FromUsername { get; set; }
+        public string FromDisplayName { get; set; }
         public Guid RequestId { get; set; }
     }
 

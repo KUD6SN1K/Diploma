@@ -44,11 +44,13 @@ public class ContactsController : ControllerBase
 
         // Notify target user about incoming friend request
         var senderUsername = _db.Users.Find(dto.SenderUserId)?.Username;
+        var senderDisplayName = _db.Users.Find(dto.SenderUserId)?.DisplayName ?? senderUsername;
         var notification = JsonSerializer.Serialize(new
         {
             type = "friend_request",
             requestId = contact.ContactId,
-            fromUsername = senderUsername
+            fromUsername = senderUsername,
+            fromDisplayName = senderDisplayName
         });
         await _connMgr.SendAsync(target.UserId, notification);
 
@@ -196,14 +198,17 @@ public class ContactsController : ControllerBase
     {
         var pending = await _db.Contacts
             .Where(c => c.ContactUserId == userId && !c.IsConfirmed)
+            .Include(c => c.User)
             .Select(c => new
             {
                 c.ContactId,
-                FromUsername = _db.Users.FirstOrDefault(u => u.UserId == c.UserId).Username
-            }).ToListAsync();
+                FromDisplayName = c.User.DisplayName ?? c.User.Username
+            })
+            .ToListAsync();
+
         return Ok(pending);
     }
-    
+
     [HttpDelete("{contactId}")]
     public async Task<IActionResult> DeleteContact(Guid contactId, [FromQuery] Guid userId)
     {

@@ -122,7 +122,8 @@
                     <TextBlock Text="Add friend" FontWeight="SemiBold" Margin="0,0,0,5"/>
                     <TextBox x:Name="FriendUsernameBox" Height="30" FontSize="14"
                      ui:ControlHelper.PlaceholderText="Username"
-                     KeyDown="FriendUsernameBox_KeyDown"/>
+                     KeyDown="FriendUsernameBox_KeyDown"
+                     TextChanged="FriendUsernameBox_TextChanged"/>
                     <Button x:Name="AddFriendButton" Content="Send request" Margin="0,5,0,0"
                     Height="30" Click="AddFriendButton_Click"
                     Style="{StaticResource AccentButtonStyle}"/>
@@ -137,7 +138,9 @@
          VirtualizingPanel.ScrollUnit="Pixel"
          KeyboardNavigation.TabNavigation="None"
          KeyboardNavigation.DirectionalNavigation="None"
-         KeyboardNavigation.ControlTabNavigation="None">
+         KeyboardNavigation.ControlTabNavigation="None"
+         MaxHeight="80"
+         ScrollViewer.VerticalScrollBarVisibility="Auto">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Grid Margin="0,2">
@@ -149,9 +152,9 @@
                                 </Grid.ColumnDefinitions>
 
                                 <!-- Username: limited width, truncates with "..." -->
-                                <TextBlock Text="{Binding FromUsername}" VerticalAlignment="Center"
-                           MaxWidth="120" TextTrimming="CharacterEllipsis"
-                           ToolTip="{Binding FromUsername}"/>
+                                <TextBlock Text="{Binding FromDisplayName}" VerticalAlignment="Center"
+                        MaxWidth="120" TextTrimming="CharacterEllipsis"
+                        ToolTip="{Binding FromDisplayName}"/>
 
                                 <!-- Accept button: fixed size, text fits -->
                                 <Button Content="Accept" Grid.Column="1" Margin="8,0,0,0"
@@ -334,7 +337,8 @@
 
             <!-- Header with selected contact name -->
             <StackPanel Grid.Row="0" Margin="0,0,0,10">
-                <TextBlock x:Name="ChatHeaderText" Text="Select a chat" FontSize="18" FontWeight="SemiBold"/>
+                <TextBlock x:Name="ChatHeaderText" Text="Select a chat" FontSize="18" FontWeight="SemiBold"
+           Cursor="Hand" MouseLeftButtonDown="ChatHeaderText_MouseLeftButtonDown"/>
                 <TextBlock x:Name="OnlineStatusText" FontSize="12" Foreground="LimeGreen" Visibility="Collapsed"/>
             </StackPanel>
 

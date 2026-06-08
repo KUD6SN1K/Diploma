@@ -19,16 +19,16 @@ namespace Diploma.Services
 
         // Contacts
         public async Task<string> SendFriendRequest(string targetUsername)
-        {
-            var payload = new { SenderUserId = _userId, TargetUsername = targetUsername };
-            var response = await _http.PostAsJsonAsync("api/contacts/request", payload);
-            if (response.IsSuccessStatusCode)
-                return null;   // success
+{
+    var payload = new { SenderUserId = _userId, TargetUsername = targetUsername };
+    var response = await _http.PostAsJsonAsync("api/contacts/request", payload);
+    if (response.IsSuccessStatusCode)
+        return null;   // success
 
-            // Return the server error message
-            var error = await response.Content.ReadAsStringAsync();
-            return error ?? "Failed to send request.";
-        }
+    // Return the server error message
+    var error = await response.Content.ReadAsStringAsync();
+    return error ?? "Failed to send request.";
+}
 
         public async Task<List<ContactDto>> GetContacts()
         {
@@ -174,7 +174,7 @@ namespace Diploma.Services
     public class PendingRequestDto
     {
         public Guid ContactId { get; set; }
-        public string FromUsername { get; set; }
+        public string FromDisplayName { get; set; } 
     }
 
     public class ConversationDto

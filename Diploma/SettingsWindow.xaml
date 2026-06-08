@@ -4,7 +4,7 @@
         xmlns:ui="http://schemas.modernwpf.com/2019"
         ui:WindowHelper.UseModernWindowStyle="True"
         Title="Settings" Height="480" Width="400"
-        WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     <Grid Margin="20">
         <StackPanel VerticalAlignment="Center">
             <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,20"/>

@@ -659,7 +659,12 @@ namespace Diploma
 
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
-            MessageBox.Show("Settings will be implemented later.");
+            var settings = new SettingsWindow(_currentUserId, _currentUsername, _currentDisplayName, _api);
+            if (settings.ShowDialog() == true)
+            {
+                // Update local display name
+                _currentDisplayName = settings.NewDisplayName;
+            }
         }
 
         private void CopyMessage_Click(object sender, RoutedEventArgs e)
@@ -1019,6 +1024,23 @@ namespace Diploma
                         }
                     }
                     break;
+                case "display_name_changed":
+                    var changedUserId = Guid.Parse(doc.RootElement.GetProperty("userId").GetString());
+                    string newDisplayName = doc.RootElement.GetProperty("newDisplayName").GetString();
+
+                    // Update the sidebar chat item for this contact
+                    var contactChat = _chatItems?.FirstOrDefault(c => c.ContactUserId == changedUserId);
+                    if (contactChat != null)
+                    {
+                        contactChat.ContactName = newDisplayName;
+                    }
+
+                    // Update the chat header if this user is currently selected
+                    if (_selectedChat?.ContactUserId == changedUserId)
+                    {
+                        ChatHeaderText.Text = newDisplayName;
+                    }
+                    break;
             }
         }
         private string FormatDateLabel(DateTime date)
@@ -1270,7 +1292,12 @@ namespace Diploma
         private int _unreadCount;
         private bool _isOnline;
 
-        public string ContactName { get; set; }
+        private string _contactName;
+        public string ContactName
+        {
+            get => _contactName;
+            set { _contactName = value; OnPropertyChanged(); }
+        }
         public string Username { get; set; }
         public Guid ContactUserId { get; set; }
         public Guid ContactId { get; set; }

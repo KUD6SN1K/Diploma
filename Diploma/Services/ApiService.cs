@@ -111,6 +111,27 @@ namespace Diploma.Services
                 return await response.Content.ReadFromJsonAsync<LastMessageDto>();
             return null;
         }
+        public async Task<string> GetSalt(string username)
+        {
+            var response = await _http.GetAsync($"api/auth/salt/{username}");
+            if (response.IsSuccessStatusCode)
+            {
+                var data = await response.Content.ReadFromJsonAsync<SaltResponse>();
+                return data?.Salt;
+            }
+            return null;
+        }
+        public async Task<bool> UpdateDisplayName(Guid userId, string displayName)
+        {
+            var response = await _http.PutAsJsonAsync("api/profile/displayname", new { UserId = userId, DisplayName = displayName });
+            return response.IsSuccessStatusCode;
+        }
+
+        public async Task<bool> ChangePassword(Guid userId, string oldPasswordHash, string newPasswordHash)
+        {
+            var response = await _http.PutAsJsonAsync("api/profile/password", new { UserId = userId, OldPasswordHash = oldPasswordHash, NewPasswordHash = newPasswordHash });
+            return response.IsSuccessStatusCode;
+        }
     }
 
     // DTOs matching server responses

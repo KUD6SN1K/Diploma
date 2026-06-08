@@ -60,5 +60,32 @@ namespace MessengerServer.Controllers
             await _db.SaveChangesAsync();
             return Ok();
         }
+        [HttpGet]
+        public async Task<IActionResult> GetProfile([FromQuery] Guid userId)
+        {
+            var user = await _db.Users.FindAsync(userId);
+            if (user == null) return NotFound();
+            return Ok(new
+            {
+                user.DisplayName,
+                user.AcceptFriendRequests
+            });
+        }
+
+        [HttpPut("toggle-friend-requests")]
+        public async Task<IActionResult> ToggleFriendRequests(ToggleFriendRequestsRequest request)
+        {
+            var user = await _db.Users.FindAsync(request.UserId);
+            if (user == null) return NotFound();
+            user.AcceptFriendRequests = request.AcceptFriendRequests;
+            await _db.SaveChangesAsync();
+            return Ok();
+        }
+
+        public class ToggleFriendRequestsRequest
+        {
+            public Guid UserId { get; set; }
+            public bool AcceptFriendRequests { get; set; }
+        }
     }
 }

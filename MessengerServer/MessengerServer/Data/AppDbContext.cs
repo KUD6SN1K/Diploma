@@ -28,6 +28,7 @@ namespace MessengerServer.Data
                 entity.Property(e => e.DisplayName).HasColumnName("display_name");
                 entity.Property(e => e.EccPublicKey).IsRequired().HasColumnName("ecc_public_key");
                 entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+                entity.Property(e => e.AcceptFriendRequests).IsRequired().HasDefaultValue(true).HasColumnName("accept_friend_requests");
             });
 
             // Contact

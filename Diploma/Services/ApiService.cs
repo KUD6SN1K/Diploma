@@ -18,11 +18,16 @@ namespace Diploma.Services
         }
 
         // Contacts
-        public async Task<bool> SendFriendRequest(string targetUsername)
+        public async Task<string> SendFriendRequest(string targetUsername)
         {
             var payload = new { SenderUserId = _userId, TargetUsername = targetUsername };
             var response = await _http.PostAsJsonAsync("api/contacts/request", payload);
-            return response.IsSuccessStatusCode;
+            if (response.IsSuccessStatusCode)
+                return null;   // success
+
+            // Return the server error message
+            var error = await response.Content.ReadAsStringAsync();
+            return error ?? "Failed to send request.";
         }
 
         public async Task<List<ContactDto>> GetContacts()
@@ -132,6 +137,21 @@ namespace Diploma.Services
             var response = await _http.PutAsJsonAsync("api/profile/password", new { UserId = userId, OldPasswordHash = oldPasswordHash, NewPasswordHash = newPasswordHash });
             return response.IsSuccessStatusCode;
         }
+
+        public async Task<ProfileData> GetProfile(Guid userId)
+        {
+            var response = await _http.GetAsync($"api/profile?userId={userId}");
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadFromJsonAsync<ProfileData>();
+            return null;
+        }
+
+        public async Task<bool> ToggleFriendRequests(Guid userId, bool accept)
+        {
+            var payload = new { UserId = userId, AcceptFriendRequests = accept };
+            var response = await _http.PutAsJsonAsync("api/profile/toggle-friend-requests", payload);
+            return response.IsSuccessStatusCode;
+        }
     }
 
     // DTOs matching server responses
@@ -181,5 +201,10 @@ namespace Diploma.Services
         public Guid SenderId { get; set; }
         public string Status { get; set; }
         public DateTime Timestamp { get; set; }
+    }
+    public class ProfileData
+    {
+        public string DisplayName { get; set; }
+        public bool AcceptFriendRequests { get; set; }
     }
 }

@@ -12,7 +12,7 @@ namespace Diploma
         private readonly string _username;
         private readonly ApiService _api;
         private string _newDisplayName;
-
+        private bool _initialAcceptRequests;
         public string NewDisplayName => _newDisplayName;
 
         public SettingsWindow(Guid userId, string username, string currentDisplayName, ApiService api)
@@ -23,10 +23,20 @@ namespace Diploma
             _username = username;
             _api = api;
             DisplayNameTextBox.Text = currentDisplayName;
+            LoadProfileAsync();
         }
-
+        private async void LoadProfileAsync()
+        {
+            var profile = await _api.GetProfile(_userId);
+            if (profile != null)
+            {
+                _initialAcceptRequests = profile.AcceptFriendRequests;
+                BlockRequestsToggle.IsOn = !_initialAcceptRequests;   // On = blocked
+            }
+        }
         private async void SaveButton_Click(object sender, RoutedEventArgs e)
         {
+            // 1. Validate display name
             string newDisplayName = DisplayNameTextBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(newDisplayName))
             {
@@ -34,7 +44,7 @@ namespace Diploma
                 return;
             }
 
-            // --- Password change (optional) ---
+            // 2. Password change (optional)
             string curPass = CurrentPasswordBox.Password;
             string newPass = NewPasswordBox.Password;
             string confirm = ConfirmNewPasswordBox.Password;
@@ -52,7 +62,7 @@ namespace Diploma
                     return;
                 }
 
-                // Fetch the stored salt from the server
+                // Fetch stored salt
                 string saltBase64 = await _api.GetSalt(_username);
                 if (saltBase64 == null)
                 {
@@ -66,7 +76,7 @@ namespace Diploma
                 byte[] oldBlob = salt.Concat(oldHash).ToArray();
                 string oldBlobB64 = Convert.ToBase64String(oldBlob);
 
-                // Build new blob with a fresh salt
+                // Build new blob with fresh salt
                 byte[] newSalt = new byte[16];
                 RandomNumberGenerator.Fill(newSalt);
                 byte[] newHash = SHA256.HashData(Encoding.UTF8.GetBytes(newPass).Concat(newSalt).ToArray());
@@ -81,7 +91,20 @@ namespace Diploma
                 }
             }
 
-            // --- Update display name ---
+            // 3. Update friend request setting if changed
+            bool newBlocked = BlockRequestsToggle.IsOn;
+            bool newAccept = !newBlocked;
+            if (newAccept != _initialAcceptRequests)
+            {
+                bool toggleOk = await _api.ToggleFriendRequests(_userId, newAccept);
+                if (!toggleOk)
+                {
+                    StatusText.Text = "Failed to update friend request setting.";
+                    return;
+                }
+            }
+
+            // 4. Update display name
             bool displayOk = await _api.UpdateDisplayName(_userId, newDisplayName);
             if (!displayOk)
             {

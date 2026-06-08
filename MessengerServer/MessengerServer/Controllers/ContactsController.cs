@@ -30,7 +30,8 @@ public class ContactsController : ControllerBase
             (c.UserId == dto.SenderUserId && c.ContactUserId == target.UserId) ||
             (c.UserId == target.UserId && c.ContactUserId == dto.SenderUserId));
         if (exists) return Conflict("Contact or request already exists.");
-
+        if (!target.AcceptFriendRequests)
+            return BadRequest("This user does not accept friend requests.");
         var contact = new Contact
         {
             UserId = dto.SenderUserId,

@@ -162,6 +162,7 @@ namespace Diploma
                 })
             );
             FriendRequestsListBox.ItemsSource = _friendRequests;
+            UpdateFriendRequestsVisibility();
         }
 
         private void ScrollMessagesToBottom()
@@ -610,14 +611,17 @@ namespace Diploma
         {
             string username = FriendUsernameBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(username)) return;
-            bool ok = await _api.SendFriendRequest(username);
-            if (ok)
+
+            string error = await _api.SendFriendRequest(username);
+            if (error == null)
             {
                 MessageBox.Show("Request sent.");
                 FriendUsernameBox.Clear();
             }
             else
-                MessageBox.Show("Failed to send request.");
+            {
+                MessageBox.Show(error);
+            }
         }
         private void FriendUsernameBox_KeyDown(object sender, KeyEventArgs e)
         {
@@ -644,7 +648,10 @@ namespace Diploma
                 // Immediately remove the request from the UI
                 var item = _friendRequests?.FirstOrDefault(r => r.RequestId == contactId);
                 if (item != null)
+                { 
                     _friendRequests.Remove(item);
+                    UpdateFriendRequestsVisibility();
+                }
             }
         }
 
@@ -869,6 +876,7 @@ namespace Diploma
                         RequestId = reqId,
                         FromUsername = fromUsername
                     });
+                    UpdateFriendRequestsVisibility();
                     break;
 
                 case "contact_added":
@@ -1202,46 +1210,13 @@ namespace Diploma
                 }
             }
         }
-        private void UpdateChatPreviewAfterDelete(Guid conversationId)
+        private void UpdateFriendRequestsVisibility()
         {
-            var chat = _chatItems?.FirstOrDefault(c => c.ConversationId == conversationId);
-            if (chat == null) return;
-
-            // Get remaining messages (only MessageDisplay) from the open chat if it's selected,
-            // otherwise we need to fetch from server. But we can reconstruct from _messages if open.
-            List<MessageDisplay> remaining = null;
-            if (_selectedChat?.ConversationId == conversationId)
-            {
-                remaining = _messages.OfType<MessageDisplay>().ToList();
-            }
-            else
-            {
-                // Not open – we must reload from server? For simplicity, just clear preview.
-                chat.LastMessage = "";
-                chat.LastMessageTimestamp = null;
-                chat.LastMessageStatus = "";
-                chat.IsLastMessageFromMe = false;
-                chat.UnreadCount = 0;
-                return;
-            }
-
-            if (remaining.Count > 0)
-            {
-                var last = remaining.Last();
-                chat.LastMessage = last.Text.Length > 25 ? last.Text.Substring(0, 25) + "..." : last.Text;
-                chat.LastMessageTimestamp = last.Timestamp;
-                chat.LastMessageStatus = last.IsMine ? (last.StatusIcon == "✓✓" ? "Read" : "Sent") : "";
-                chat.IsLastMessageFromMe = last.IsMine;
-            }
-            else
-            {
-                chat.LastMessage = "";
-                chat.LastMessageTimestamp = null;
-                chat.LastMessageStatus = "";
-                chat.IsLastMessageFromMe = false;
-            }
-            // Unread count remains (it's not affected by deletion, unless we deleted unread messages – but we only allow sender to delete).
+            bool hasRequests = _friendRequests != null && _friendRequests.Count > 0;
+            FriendRequestsHeader.Visibility = hasRequests ? Visibility.Visible : Visibility.Collapsed;
+            FriendRequestsListBox.Visibility = hasRequests ? Visibility.Visible : Visibility.Collapsed;
         }
+
         private void ChatListBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
             // Prevent the right‑click from selecting the item

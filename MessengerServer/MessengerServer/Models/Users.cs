@@ -6,4 +6,5 @@
     public string DisplayName { get; set; }
     public string EccPublicKey { get; set; }
     public DateTime CreatedAt { get; set; }
+    public bool AcceptFriendRequests { get; set; } = true;
 }

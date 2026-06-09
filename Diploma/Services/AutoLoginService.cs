@@ -1,12 +1,11 @@
-﻿using Diploma.Crypto;
-using System;
+﻿using System;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 
-namespace Diploma.Helpers
+namespace Diploma.Services
 {
     public static class AutoLoginService
     {
@@ -33,7 +32,7 @@ namespace Diploma.Helpers
                 string publicKey = userData.EccPublicKey;
 
                 // Load private key from local DB
-                var keyManager = new KeyManager(userId);
+                var keyManager = new KeyManagerService(userId);
                 string privateKey = keyManager.LoadPrivateKey(userId);
 
                 // Enforce single instance per user

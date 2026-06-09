@@ -1,4 +1,4 @@
-﻿using Diploma.Helpers;
+﻿using Diploma.Services;
 using System.Windows;
 
 namespace Diploma
@@ -13,7 +13,7 @@ namespace Diploma
             ModernWpf.ThemeManager.Current.ApplicationTheme = ModernWpf.ApplicationTheme.Light;
 
             // Try auto-login if credentials exist
-            var creds = CredentialsStorage.LoadCredentials();
+            var creds = CredentialsStorageService.LoadCredentials();
             if (creds.HasValue)
             {
                 var (username, blob) = creds.Value;
@@ -24,7 +24,7 @@ namespace Diploma
                     return;  // Skip showing LoginWindow
                 }
                 // Auto-login failed – clear invalid credentials
-                CredentialsStorage.DeleteCredentials();
+                CredentialsStorageService.DeleteCredentials();
             }
 
             // Fallback: show LoginWindow

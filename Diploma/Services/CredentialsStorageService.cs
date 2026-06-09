@@ -3,9 +3,9 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Data.Sqlite;
 
-namespace Diploma.Helpers
+namespace Diploma.Services
 {
-    public static class CredentialsStorage
+    public static class CredentialsStorageService
     {
         private const string ConnectionString = "Data Source=localstorage.db";
 

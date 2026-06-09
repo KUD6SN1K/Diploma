@@ -1,5 +1,4 @@
-﻿using Diploma.Crypto;
-using Diploma.Models;
+﻿using Diploma.Services;
 using System;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -71,7 +70,7 @@ namespace Diploma
                     // 4. Get real userId and save private key locally
                     var result = await response.Content.ReadFromJsonAsync<RegisterResponse>();
                     Guid realUserId = result.UserId;
-                    var keyManager = new KeyManager(realUserId);
+                    var keyManager = new KeyManagerService(realUserId);
                     keyManager.SavePrivateKey(privKey);
 
                     MessageBox.Show("Registration successful!", "Success",
@@ -118,6 +117,10 @@ namespace Diploma
             var loginWindow = new LoginWindow();
             loginWindow.Show();
             this.Close();
+        }
+        public class RegisterResponse
+        {
+            public Guid UserId { get; set; }
         }
 
     }

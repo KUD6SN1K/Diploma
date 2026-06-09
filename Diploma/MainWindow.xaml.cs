@@ -1,6 +1,4 @@
-﻿using Diploma.Crypto;
-using Diploma.Helpers;
-using Diploma.Services;
+﻿using Diploma.Services;
 using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
@@ -27,7 +25,7 @@ namespace Diploma
         private string _currentPrivateKey;
         private string _currentPublicKey;
         private ApiService _api;
-        private KeyManager _keyManager;
+        private KeyManagerService _keyManager;
         private WebSocketService _wsService;
         private ChatItem _selectedChat;
         private Mutex _userMutex;
@@ -68,7 +66,7 @@ namespace Diploma
             _userMutex = userMutex;
 
             _api = new ApiService("https://localhost:5001", userId);
-            _keyManager = new KeyManager(userId);
+            _keyManager = new KeyManagerService(userId);
 
             this.Loaded += async (s, e) =>
             {

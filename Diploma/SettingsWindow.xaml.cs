@@ -1,5 +1,4 @@
-﻿using Diploma.Helpers;
-using Diploma.Services;
+﻿using Diploma.Services;
 using System;
 using System.Security.Cryptography;
 using System.Text;
@@ -133,7 +132,7 @@ namespace Diploma
 
             if (result == MessageBoxResult.Yes)
             {
-                CredentialsStorage.DeleteCredentials();
+                CredentialsStorageService.DeleteCredentials();
                 string exePath = Environment.ProcessPath!;
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {

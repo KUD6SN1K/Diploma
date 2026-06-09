@@ -1,12 +1,12 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
 
-public class KeyManager
+public class KeyManagerService
 {
     private readonly Guid _userId;
     private const string ConnectionString = "Data Source=localstorage.db";
 
-    public KeyManager(Guid userId) => _userId = userId;
+    public KeyManagerService(Guid userId) => _userId = userId;
 
     public void SavePrivateKey(string privateKeyBase64)
     {

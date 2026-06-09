@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Security.Cryptography;
 
-namespace Diploma.Crypto
+namespace Diploma.Services
 {
     public static class ECCryptoService
     {

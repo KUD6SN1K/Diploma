@@ -1,5 +1,4 @@
-﻿using Diploma.Helpers;
-using Diploma.Models;
+﻿using Diploma.Services;
 using Microsoft.Data.Sqlite;
 using System;
 using System.Linq;
@@ -14,7 +13,6 @@ namespace Diploma
 {
     public partial class LoginWindow : Window
     {
-        private const string LocalConnectionString = "Data Source=localstorage.db";
         private static readonly HttpClient client = new HttpClient
         {
             BaseAddress = new Uri("https://localhost:5001")
@@ -66,7 +64,7 @@ namespace Diploma
                     string publicKey = userData.EccPublicKey;
 
                     // Load private key from local DB
-                    var keyManager = new KeyManager(userId);
+                    var keyManager = new KeyManagerService(userId);
                     string privateKey = keyManager.LoadPrivateKey(userId);
 
                     // Prevent multiple logins for same user
@@ -82,7 +80,7 @@ namespace Diploma
 
                     // Save credentials if "Remember me" is checked
                     if (RememberMeCheckBox.IsChecked == true)
-                        CredentialsStorage.SaveCredentials(username, blobB64);
+                        CredentialsStorageService.SaveCredentials(username, blobB64);
 
                     MessageBox.Show($"Login successful! Welcome, {displayName}.", "Success",
                         MessageBoxButton.OK, MessageBoxImage.Information);

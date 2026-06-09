@@ -282,8 +282,8 @@ namespace Diploma
             string contactPublicKey = _selectedChat?.PublicKey;
             if (contactPublicKey == null) return;
             // Mark all messages in this conversation as read (clear unread tracker)
-            if (_unreadMessageIds.ContainsKey(targetConvId))
-                _unreadMessageIds[targetConvId].Clear();
+            //if (_unreadMessageIds.ContainsKey(targetConvId))
+            //    _unreadMessageIds[targetConvId].Clear();
             _isLoadingMessages = true;
             _pendingIncomingMessages.Clear();
             _pendingOutgoingMessages.Clear();
@@ -372,10 +372,20 @@ namespace Diploma
             _messages = new ObservableCollection<object>(finalList);
             MessagesListBox.ItemsSource = _messages;
 
+            // Insert the unread separator (while the unread set still has the IDs)
+            UpdateUnreadSeparator(targetConvId);
+
+            // Now clear the unread status for the displayed messages
+            if (_unreadMessageIds.TryGetValue(targetConvId, out var unreadSet))
+            {
+                foreach (var msg in decryptedList)
+                    unreadSet.Remove(msg.MessageId);
+            }
+
             if (_pendingReadReceipts.Count > 0)
             {
                 var uniqueConvIds = _pendingReadReceipts.Distinct().ToList();
-                _pendingReadReceipts.Clear();
+                _pendingReadReceipts.Clear(); 
                 foreach (var convId in uniqueConvIds)
                     _ = Task.Run(() => _api.MarkAsRead(convId));
             }
@@ -590,6 +600,7 @@ namespace Diploma
             // 4. Remove any accidental duplicate separators (safety)
             RemoveDuplicateDateSeparators();
             RemoveRedundantDateSeparators();
+            UpdateUnreadSeparator(_selectedChat.ConversationId);
             // Restore scroll position
             await Dispatcher.InvokeAsync(() =>
             {
@@ -986,6 +997,7 @@ namespace Diploma
                             _messages.RemoveAt(idx);
                             RemoveRedundantDateSeparators();
                             RemoveOrphanedDateSeparators();
+                            UpdateUnreadSeparator(_selectedChat.ConversationId);
                         }
                     }
                     else
@@ -1007,6 +1019,7 @@ namespace Diploma
                     if (_selectedChat?.ConversationId == clearConvId)
                     {
                         _messages.Clear();
+                        UpdateUnreadSeparator(_selectedChat.ConversationId);
                     }
                     _unreadMessageIds.Remove(clearConvId);
                     // Update sidebar preview
@@ -1117,13 +1130,37 @@ namespace Diploma
         {
             for (int i = _messages.Count - 2; i >= 0; i--)
             {
-                if (_messages[i] is DateSeparator &&
-                    i > 0 && i < _messages.Count - 1 &&
-                    _messages[i - 1] is MessageDisplay left &&
-                    _messages[i + 1] is MessageDisplay right &&
-                    left.Timestamp.Date == right.Timestamp.Date)
+                if (_messages[i] is DateSeparator)
                 {
-                    _messages.RemoveAt(i);
+                    // Find the previous MessageDisplay (skip any non‑message items)
+                    MessageDisplay left = null;
+                    for (int j = i - 1; j >= 0; j--)
+                    {
+                        if (_messages[j] is MessageDisplay msg)
+                        {
+                            left = msg;
+                            break;
+                        }
+                    }
+                    if (left == null) continue;
+
+                    // Find the next MessageDisplay (skip any non‑message items)
+                    MessageDisplay right = null;
+                    for (int j = i + 1; j < _messages.Count; j++)
+                    {
+                        if (_messages[j] is MessageDisplay msg)
+                        {
+                            right = msg;
+                            break;
+                        }
+                    }
+                    if (right == null) continue;
+
+                    if (left.Timestamp.Date == right.Timestamp.Date)
+                    {
+                        _messages.RemoveAt(i);
+                        i--; // adjust index after removal
+                    }
                 }
             }
         }
@@ -1150,6 +1187,7 @@ namespace Diploma
                         _messages.RemoveAt(index);
                         RemoveRedundantDateSeparators();
                         RemoveOrphanedDateSeparators();
+                        UpdateUnreadSeparator(_selectedChat.ConversationId);
                         if (_selectedChat != null)
                             await UpdateChatPreviewFromServer(_selectedChat.ConversationId);
                     }
@@ -1185,14 +1223,18 @@ namespace Diploma
                 bool success = await _api.ClearHistory(conversationId);
                 if (success)
                 {
-                    if (_unreadMessageIds.ContainsKey(conversationId))
-                        _unreadMessageIds.Remove(conversationId);
-                    // If this conversation is currently open, clear the messages
+                    // Remove all tracking of unread messages for this conversation
+                    _unreadMessageIds.Remove(conversationId);
+
+                    // Clear the message list only if this conversation is currently open
                     if (_selectedChat?.ConversationId == conversationId)
                     {
                         _messages.Clear();
+                        // Also remove the unread separator (no messages left)
+                        UpdateUnreadSeparator(conversationId);
                     }
-                    // Update the chat preview
+
+                    // Update the sidebar preview for this conversation
                     await UpdateChatPreviewFromServer(conversationId);
                 }
             }
@@ -1314,6 +1356,28 @@ namespace Diploma
                 _headerFeedbackTimer.Stop();
             };
             _headerFeedbackTimer.Start();
+        }
+        private void UpdateUnreadSeparator(Guid conversationId)
+        {
+            // Remove any existing UnreadSeparator
+            for (int i = _messages.Count - 1; i >= 0; i--)
+            {
+                if (_messages[i] is UnreadSeparator)
+                    _messages.RemoveAt(i);
+            }
+
+            // Find the first unread message and insert the separator before it
+            if (_unreadMessageIds.TryGetValue(conversationId, out var unreadSet) && unreadSet.Count > 0)
+            {
+                for (int i = 0; i < _messages.Count; i++)
+                {
+                    if (_messages[i] is MessageDisplay msg && unreadSet.Contains(msg.MessageId))
+                    {
+                        _messages.Insert(i, new UnreadSeparator());
+                        break;
+                    }
+                }
+            }
         }
 
     }
@@ -1455,12 +1519,18 @@ namespace Diploma
     {
         public DataTemplate MessageTemplate { get; set; }
         public DataTemplate DateSeparatorTemplate { get; set; }
+        public DataTemplate UnreadSeparatorTemplate { get; set; }   // <-- NEW
 
         public override DataTemplate SelectTemplate(object item, DependencyObject container)
         {
-            if (item is DateSeparator)
-                return DateSeparatorTemplate;
+            if (item is DateSeparator) return DateSeparatorTemplate;
+            if (item is UnreadSeparator) return UnreadSeparatorTemplate;
             return MessageTemplate;
         }
+    }
+
+    public class UnreadSeparator
+    {
+        public string Text => "Unread messages";
     }
 }

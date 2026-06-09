@@ -1,4 +1,5 @@
 ﻿using Diploma.Models;
+using Microsoft.Data.Sqlite;
 using System;
 using System.Linq;
 using System.Net.Http;
@@ -12,12 +13,29 @@ namespace Diploma
 {
     public partial class LoginWindow : Window
     {
+        private const string LocalConnectionString = "Data Source=localstorage.db";
         private static readonly HttpClient client = new HttpClient
         {
             BaseAddress = new Uri("https://localhost:5001")
         };
 
-        public LoginWindow() => InitializeComponent();
+        public LoginWindow()
+        {
+            InitializeComponent();
+            this.Loaded += async (s, e) =>
+            {
+                var creds = LoadCredentials();
+                if (creds.HasValue)
+                {
+                    // Attempt auto-login
+                    var (savedUsername, savedBlob) = creds.Value;
+                    var success = await TryAutoLogin(savedUsername, savedBlob);
+                    if (success) return;   // main window already opened
+                                           // Auto-login failed – clear credentials and let user login manually
+                    DeleteCredentials();
+                }
+            };
+        }
 
         private async void LoginButton_Click(object sender, RoutedEventArgs e)
         {
@@ -80,7 +98,10 @@ namespace Diploma
 
                     MessageBox.Show($"Login successful! Welcome, {displayName}.", "Success",
                         MessageBoxButton.OK, MessageBoxImage.Information);
-
+                    if (RememberMeCheckBox.IsChecked == true)
+                    {
+                        SaveCredentials(username, blobB64);
+                    }
                     // Open main window with all the user data, plus the mutex
                     var mainWindow = new MainWindow(userId, username, displayName, privateKey, publicKey, mutex);
                     mainWindow.Show();
@@ -127,6 +148,91 @@ namespace Diploma
             {          
                 Keyboard.ClearFocus();
             }
+        }
+        private void SaveCredentials(string username, string passwordBlobBase64)
+        {
+            byte[] plainBytes = Encoding.UTF8.GetBytes(username + "|" + passwordBlobBase64);
+            byte[] encrypted = ProtectedData.Protect(plainBytes, null, DataProtectionScope.CurrentUser);
+
+            using var conn = new SqliteConnection(LocalConnectionString);
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+        CREATE TABLE IF NOT EXISTS saved_credentials (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            encrypted_data BLOB NOT NULL
+        );
+        INSERT OR REPLACE INTO saved_credentials (id, encrypted_data) VALUES (1, @data);";
+            cmd.Parameters.AddWithValue("@data", encrypted);
+            cmd.ExecuteNonQuery();
+        }
+
+        private (string username, string passwordBlob)? LoadCredentials()
+        {
+            using var conn = new SqliteConnection(LocalConnectionString);
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "CREATE TABLE IF NOT EXISTS saved_credentials (id INTEGER PRIMARY KEY CHECK (id = 1), encrypted_data BLOB NOT NULL);";
+            cmd.ExecuteNonQuery();   // ensure table exists
+
+            cmd.CommandText = "SELECT encrypted_data FROM saved_credentials WHERE id = 1;";
+            var result = cmd.ExecuteScalar();
+            if (result == null || result == DBNull.Value) return null;
+
+            try
+            {
+                byte[] encrypted = (byte[])result;
+                byte[] plain = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+                string data = Encoding.UTF8.GetString(plain);
+                var parts = data.Split('|', 2);
+                if (parts.Length == 2) return (parts[0], parts[1]);
+            }
+            catch { }
+            return null;
+        }
+
+        private void DeleteCredentials()
+        {
+            using var conn = new SqliteConnection(LocalConnectionString);
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM saved_credentials;";
+            cmd.ExecuteNonQuery();
+        }
+        private async Task<bool> TryAutoLogin(string username, string blobB64)
+        {
+            try
+            {
+                var loginPayload = new { username = username, password = blobB64 };
+                var response = await client.PostAsJsonAsync("api/auth/login", loginPayload);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var userData = await response.Content.ReadFromJsonAsync<LoginResponse>();
+                    Guid userId = userData.UserId;
+                    string displayName = userData.DisplayName;
+                    string publicKey = userData.EccPublicKey;
+
+                    var keyManager = new KeyManager(userId);
+                    string privateKey = keyManager.LoadPrivateKey(userId);
+
+                    string mutexName = $"DiplomaMessenger_User_{username}";
+                    var mutex = new Mutex(true, mutexName, out bool createdNew);
+                    if (!createdNew)
+                    {
+                        MessageBox.Show("This user is already logged in.", "Login denied", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        mutex.Dispose();
+                        return false;
+                    }
+
+                    var mainWindow = new MainWindow(userId, username, displayName, privateKey, publicKey, mutex);
+                    mainWindow.Show();
+                    this.Close();
+                    return true;
+                }
+            }
+            catch { }
+            return false;
         }
 
     }

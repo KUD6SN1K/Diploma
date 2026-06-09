@@ -23,6 +23,7 @@
                 <ui:ToggleSwitch x:Name="BlockRequestsToggle" Header="Block friend requests"
                      OffContent="Off" OnContent="On"/>
             </StackPanel>
+
             <TextBlock x:Name="StatusText" Foreground="Red" TextWrapping="Wrap" Margin="0,10,0,0"/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">

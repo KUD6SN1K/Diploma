@@ -1,4 +1,5 @@
 ﻿using Diploma.Crypto;
+using Diploma.Helpers;
 using Diploma.Services;
 using Microsoft.Data.Sqlite;
 using System;
@@ -53,7 +54,7 @@ namespace Diploma
         private bool _suppressScrollEvents = false;
         private DispatcherTimer _scrollSuppressTimer;
         private DispatcherTimer _headerFeedbackTimer;
-        private const string LocalConnectionString = "Data Source=localstorage.db";
+        
         public MainWindow(Guid userId, string username, string displayName,
                           string privateKey, string publicKey, Mutex userMutex)
         {
@@ -1380,39 +1381,6 @@ namespace Diploma
                 }
             }
         }
-
-        private void LogoutButton_Click(object sender, RoutedEventArgs e)
-        {
-            var result = MessageBox.Show(
-                "Are you sure you want to log out?",
-                "Log out",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Yes)
-            {
-                DeleteCredentials();
-
-                string exePath = Environment.ProcessPath!;
-
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = exePath,
-                    UseShellExecute = true
-                });
-
-                Application.Current.Shutdown();
-            }
-        }
-        private void DeleteCredentials()
-        {
-            using var conn = new SqliteConnection(LocalConnectionString);
-            conn.Open();
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM saved_credentials;";
-            cmd.ExecuteNonQuery();
-        }
-
     }
 
     // ---------- Display helper classes ----------

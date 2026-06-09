@@ -1,4 +1,5 @@
-﻿using Diploma.Services;
+﻿using Diploma.Helpers;
+using Diploma.Services;
 using System;
 using System.Security.Cryptography;
 using System.Text;
@@ -121,6 +122,26 @@ namespace Diploma
         {
             DialogResult = false;
             Close();
+        }
+        private void LogoutButton_Click(object sender, RoutedEventArgs e)
+        {
+            var result = MessageBox.Show(
+                "Are you sure you want to log out?",
+                "Log out",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                CredentialsStorage.DeleteCredentials();
+                string exePath = Environment.ProcessPath!;
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = exePath,
+                    UseShellExecute = true
+                });
+                Application.Current.Shutdown();
+            }
         }
     }
 }
